@@ -15,7 +15,7 @@ import {
 const RELEASE_MODE = false;
 
 // Avresa: datum (torsdagen) och klockslag för samling.
-const TRIP_DATE = '2027-04-01';
+const TRIP_DATE = '2027-03-11';
 const TRIP_TIME = '15:00';
 
 // Personliga lösenord (skiftlägeskänsliga).
