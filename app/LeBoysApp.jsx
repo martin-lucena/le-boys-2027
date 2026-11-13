@@ -9,13 +9,13 @@ import {
 /* =====================================================================
    INSTÄLLNINGAR
    false = bara Martin och Malte ser appen, övriga ser den hemliga nedräkningen.
-   true  = alla sju får Agenda, Lagkapten, Låtstudion och Lag-Roulette.
+   true  = alla åtta får Agenda, Lagkapten, Låtstudion och Lag-Roulette.
            Admin-panelen längst ner visas alltid bara för Martin och Malte.
    ===================================================================== */
 const RELEASE_MODE = false;
 
 // Avresa: datum (torsdagen) och klockslag för samling.
-const TRIP_DATE = '2027-04-01';
+const TRIP_DATE = '2027-05-06';
 const TRIP_TIME = '15:00';
 
 // Personliga lösenord (skiftlägeskänsliga).
@@ -27,9 +27,10 @@ const ACCOUNTS = {
   Victor: { pw: 'H9fD4s' },
   Petter: { pw: 'R2gN6w' },
   William: { pw: 'P4kV9m' },
+  Axel: { pw: 'T6qB3x' },
 };
 
-const BOYS = ['Martin', 'Malte', 'Max', 'Dylan', 'Victor', 'Petter', 'William'];
+const BOYS = ['Martin', 'Malte', 'Max', 'Dylan', 'Victor', 'Petter', 'William', 'Axel'];
 const isAdmin = (name) => !!(ACCOUNTS[name] && ACCOUNTS[name].admin);
 const hasFullAccess = (name) => RELEASE_MODE || isAdmin(name);
 
@@ -42,6 +43,7 @@ const PLAYER = {
   Victor: { bg: 'bg-purple-400', text: 'text-purple-400', border: 'border-purple-400', hex: '#c084fc', tag: 'V' },
   Petter: { bg: 'bg-lime-400', text: 'text-lime-400', border: 'border-lime-400', hex: '#a3e635', tag: 'P' },
   William: { bg: 'bg-pink-400', text: 'text-pink-400', border: 'border-pink-400', hex: '#f472b6', tag: 'W' },
+  Axel: { bg: 'bg-indigo-400', text: 'text-indigo-400', border: 'border-indigo-400', hex: '#818cf8', tag: 'A' },
 };
 
 const NIGHTS = [
@@ -70,7 +72,7 @@ const BEAT_ROWS = [
 
 const DAYS = [
   { id: 'tors', label: 'Torsdag', short: 'Tors', items: [
-    { id: 't1', time: '15:00', title: 'Samling och avfärd', place: 'Centralen, under klockan', dress: 'Resekostym: mjukisbyxor och solglasögon', text: 'Alla sju på plats. Den som kommer sist bär väskorna första dygnet.' },
+    { id: 't1', time: '15:00', title: 'Samling och avfärd', place: 'Centralen, under klockan', dress: 'Resekostym: mjukisbyxor och solglasögon', text: 'Alla åtta på plats. Den som kommer sist bär väskorna första dygnet.' },
     { id: 't2', time: '18:00', title: 'Incheckning och rumsdragning', place: 'Högkvarteret (hemlig adress)', dress: 'Fritt, men strumpor i sandaler ger sämsta rummet', text: 'Nycklar ut, rum lottas. Inga byten efter dragning, inga överklaganden.' },
     { id: 't3', time: '20:00', title: 'Välkomstmiddag', place: 'Långbordet', dress: 'Skjorta. Struken är en bonus, inget krav', text: 'Första skålen, resans regler läses upp och truppen presenteras med påhittad statistik.' },
     { id: 't4', time: '23:00', title: 'Lagkaptensröstning, omgång 1', place: 'Lagkapten Arena', dress: 'Det du har på dig, om det fortfarande sitter kvar', text: 'Vem bar laget i dag? En röst per person, motivering krävs.', tab: 'kapten' },
@@ -414,7 +416,7 @@ function Login({ onLogin }) {
         <div className={cx('px-6 pt-7 pb-5 border-b border-dashed border-slate-700', STRIPE)}>
           <p className="text-[11px] tracking-[0.3em] uppercase text-emerald-400 font-semibold">VIP · Matchday pass</p>
           <h1 className={cx(DISPLAY, 'text-5xl mt-2')}>Le boys<br /><span className="text-amber-400">på språng</span></h1>
-          <p className="font-bold text-lg text-slate-400 mt-2 tabular-nums">2027 · Tors–Sön · 7 spelare</p>
+          <p className="font-bold text-lg text-slate-400 mt-2 tabular-nums">2027 · Tors–Sön · 8 spelare</p>
         </div>
         <form onSubmit={submit} className="px-6 py-6 flex flex-col gap-3">
           <p id="login-who" className="text-sm text-slate-400">Vem är du?</p>
@@ -536,7 +538,7 @@ function AgendaItem({ item, status, open, onToggle, data, mut, user, goTab }) {
             <span className="block font-semibold leading-tight">{item.title}</span>
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 mt-1">
               <span>🔥 {hype}</span>
-              <span>{here.length}/7 incheckade</span>
+              <span>{here.length}/{BOYS.length} incheckade</span>
               {status === 'now' && <span className="px-1.5 py-0.5 rounded bg-emerald-400 text-slate-950 font-bold uppercase tracking-wider">Nu</span>}
               {status === 'done' && <span className="uppercase tracking-wider">Klart</span>}
             </span>
@@ -713,7 +715,7 @@ function Captain({ data, mut, user }) {
           <p className="text-sm text-slate-400 mb-3">
             <span className="text-slate-100 font-semibold">{user}</span>, du har en röst för {nightLabel.toLowerCase()}. Du kan inte rösta på dig själv.
           </p>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Kandidater">
+          <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Kandidater">
             {BOYS.filter((n) => n !== user).map((n) => (
               <button
                 key={n}
@@ -721,10 +723,10 @@ function Captain({ data, mut, user }) {
                 role="radio"
                 aria-checked={cand === n}
                 onClick={() => { Sound.tap(); setCand(n); }}
-                className={cx(PRESS, 'flex flex-col items-center gap-1.5 rounded-xl border p-2.5', cand === n ? cx('border-amber-400 bg-amber-400/10', GLOW_GOLD) : 'border-slate-700 bg-slate-950 hover:border-slate-500')}
+                className={cx(PRESS, 'flex flex-col items-center gap-1.5 rounded-xl border px-1 py-2.5', cand === n ? cx('border-amber-400 bg-amber-400/10', GLOW_GOLD) : 'border-slate-700 bg-slate-950 hover:border-slate-500')}
               >
                 <Avatar name={n} size="lg" />
-                <span className="font-semibold text-sm">{n}</span>
+                <span className="font-semibold text-xs sm:text-sm">{n}</span>
               </button>
             ))}
           </div>
@@ -777,7 +779,7 @@ function Captain({ data, mut, user }) {
           ))}
         </ul>
         <p className="text-xs text-slate-400 mt-3 tabular-nums">
-          {scope === 'night' ? `${votes.length} av 7 har röstat ${nightLabel.toLowerCase()}.` : `${pool.length} röster över tre kvällar.`}
+          {scope === 'night' ? `${votes.length} av ${BOYS.length} har röstat ${nightLabel.toLowerCase()}.` : `${pool.length} röster över tre kvällar.`}
         </p>
       </Card>
 
@@ -1160,9 +1162,9 @@ function Roulette({ data, mut }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-          <p className="text-sm text-slate-400 tabular-nums">{names.length} kvar på hjulet · {order.length}/7 dragna</p>
+          <p className="text-sm text-slate-400 tabular-nums">{names.length} kvar på hjulet · {order.length}/{BOYS.length} dragna</p>
           <button type="button" onClick={reset} className={cx(PRESS, 'flex items-center gap-1.5 rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold hover:border-amber-400')}>
-            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" /> Återställ hjulet (Alla 7)
+            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" /> Återställ hjulet (Alla 8)
           </button>
         </div>
       </Card>
@@ -1173,7 +1175,7 @@ function Roulette({ data, mut }) {
           label="Visningsläge"
           value={data.listMode}
           onChange={(v) => mut((d) => { d.listMode = v; })}
-          options={[{ id: 'order', label: 'Dragningsordning (1–7)' }, { id: 'teams', label: 'Automatiska Lag' }]}
+          options={[{ id: 'order', label: 'Dragningsordning (1–8)' }, { id: 'teams', label: 'Automatiska Lag' }]}
         />
         <div className="mt-3">
           {data.listMode === 'order' ? (
@@ -1196,11 +1198,11 @@ function Roulette({ data, mut }) {
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <TeamColumn title="Lag Gul" list={gul} slots={4} border="border-amber-400" text="text-amber-400" />
-              <TeamColumn title="Lag Blå" list={bla} slots={3} border="border-sky-400" text="text-sky-400" />
+              <TeamColumn title="Lag Blå" list={bla} slots={4} border="border-sky-400" text="text-sky-400" />
             </div>
           )}
         </div>
-        <p className="text-xs text-slate-400 mt-3">Varannan dragen spelare går till Lag Gul och varannan till Lag Blå. Det blir fyra mot tre.</p>
+        <p className="text-xs text-slate-400 mt-3">Varannan dragen spelare går till Lag Gul och varannan till Lag Blå. Det blir fyra mot fyra.</p>
       </Card>
 
       {winner && (
@@ -1220,7 +1222,7 @@ function Roulette({ data, mut }) {
               <span className={cx('font-bold', pos % 2 === 0 ? 'text-amber-400' : 'text-sky-400')}>Lag {teamOf(pos)}</span>
             </p>
             <button type="button" autoFocus onClick={() => { Sound.tap(); setWinner(null); }} className={cx(PRESS, 'mt-5 w-full rounded-xl bg-amber-400 text-slate-950 font-bold py-3')}>
-              {order.length >= 7 ? 'Visa lagen' : 'Ta bort från hjulet och fortsätt'}
+              {order.length >= BOYS.length ? 'Visa lagen' : 'Ta bort från hjulet och fortsätt'}
             </button>
           </Pop>
         </div>
@@ -1249,7 +1251,7 @@ function AdminPanel({ onReset }) {
           <Trash2 className="w-3.5 h-3.5" aria-hidden="true" /> {armed ? 'Tryck igen för att radera allt' : 'Nollställ all data'}
         </button>
         <span className={cx('rounded-full border px-2 py-1 font-semibold', RELEASE_MODE ? 'border-emerald-400 text-emerald-400' : 'border-amber-400 text-amber-400')}>
-          {RELEASE_MODE ? 'Släppt: alla sju har åtkomst' : 'Hemligt läge: bara Reseledningen har åtkomst'}
+          {RELEASE_MODE ? 'Släppt: alla åtta har åtkomst' : 'Hemligt läge: bara Reseledningen har åtkomst'}
         </span>
       </div>
       <p className="mt-2 min-h-4 text-emerald-400" role="status">{msg}</p>
