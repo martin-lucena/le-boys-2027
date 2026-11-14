@@ -12,6 +12,7 @@ import {
    false = bara Martin och Malte ser appen, övriga ser den hemliga nedräkningen.
    true  = alla åtta får Agenda, Lagkapten, Låtstudion och Lag-Roulette.
            Admin-fliken visas alltid bara för Martin och Malte.
+           Admin-fliken visas alltid bara för Martin och Malte.
    ===================================================================== */
 const RELEASE_MODE = false;
 
@@ -20,6 +21,10 @@ const RELEASE_MODE = false;
 const SUPABASE_URL = 'https://ljpuljpykmqngsirqejf.supabase.co';
 const SUPABASE_KEY = 'sb_publishable__qYkYANocLFO-ycXJEcyrw_uzG2jwUB';
 const SUPABASE_TABLE = 'app_state';
+// Lokalt testläge: när appen körs på localhost (t.ex. npm run dev i VS Code) sparas allt bara i
+// webbläsarens localStorage. Ingenting läses från eller skrivs till Supabase.
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]'];
+const isLocalDev = () => typeof window !== 'undefined' && LOCAL_HOSTS.includes(window.location.hostname);
 // Lokalt testläge: när appen körs på localhost (t.ex. npm run dev i VS Code) sparas allt bara i
 // webbläsarens localStorage. Ingenting läses från eller skrivs till Supabase.
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]'];
@@ -318,6 +323,7 @@ function useSharedData() {
 
   const flush = async () => {
     if (busy.current || isLocalDev()) return;
+    if (busy.current || isLocalDev()) return;
     busy.current = true;
     try {
       while (pending.current.length) {
@@ -341,11 +347,13 @@ function useSharedData() {
   const mut = (fn) => {
     setData((d) => { const c = clone(d); fn(c); return c; });
     if (isLocalDev()) return; // lokalt testläge: stannar i localStorage
+    if (isLocalDev()) return; // lokalt testläge: stannar i localStorage
     pending.current.push(fn);
     flush();
   };
 
   useEffect(() => {
+    if (isLocalDev()) { setSync('local'); return undefined; }
     if (isLocalDev()) { setSync('local'); return undefined; }
     let alive = true;
     const refresh = () => pullAll().then(() => { if (alive) { setSync('live'); flush(); } }, () => { if (alive) setSync('offline'); });
@@ -376,6 +384,7 @@ function useSharedData() {
 function useIntel() {
   const [guesses, setGuesses] = useState([]);
   const [status, setStatus] = useState('connecting'); // 'connecting' | 'live' | 'offline' | 'local'
+  const [status, setStatus] = useState('connecting'); // 'connecting' | 'live' | 'offline' | 'local'
 
   const load = async () => {
     const g = await supabase.from(GUESSES_TABLE).select('id,author,city,reason,created_at').order('created_at', { ascending: true });
@@ -384,6 +393,12 @@ function useIntel() {
   };
 
   useEffect(() => {
+    if (isLocalDev()) {
+      const saved = readJSON(LOCAL_GUESSES_KEY);
+      setGuesses(Array.isArray(saved) ? saved.filter((x) => BOYS.includes(x.author)) : []);
+      setStatus('local');
+      return undefined;
+    }
     if (isLocalDev()) {
       const saved = readJSON(LOCAL_GUESSES_KEY);
       setGuesses(Array.isArray(saved) ? saved.filter((x) => BOYS.includes(x.author)) : []);
@@ -406,6 +421,12 @@ function useIntel() {
 
   // En gissning per person: sparas om ifall man ändrar sig.
   const saveGuess = async (guess) => {
+    if (isLocalDev()) {
+      const next = guesses.filter((g) => g.author !== guess.author).concat({ ...guess, created_at: new Date().toISOString() });
+      writeJSON(LOCAL_GUESSES_KEY, next);
+      setGuesses(next);
+      return;
+    }
     if (isLocalDev()) {
       const next = guesses.filter((g) => g.author !== guess.author).concat({ ...guess, created_at: new Date().toISOString() });
       writeJSON(LOCAL_GUESSES_KEY, next);
@@ -749,6 +770,29 @@ function FoldHeader({ icon, title, note, open, onToggle }) {
   );
 }
 
+// Rubrik som fäller ihop och fäller ut en ruta. Pilen visar att den går att trycka på.
+function FoldHeader({ icon, title, note, open, onToggle }) {
+  return (
+    <h2>
+      <button
+        type="button"
+        onClick={() => { Sound.tap(); onToggle(); }}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 text-left rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400"
+      >
+        {icon}
+        <span className="flex-1 min-w-0">
+          <span className={cx(DISPLAY, 'block text-2xl break-words')}>{title}</span>
+          {note && <span className="block text-xs font-normal normal-case tracking-normal text-slate-400 tabular-nums mt-1">{note}</span>}
+        </span>
+        <span className={cx('w-8 h-8 rounded-full border flex items-center justify-center shrink-0 transition-colors', open ? 'border-slate-700 text-slate-300' : 'border-amber-400 text-amber-400')}>
+          <ChevronDown className={cx('w-5 h-5 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </span>
+      </button>
+    </h2>
+  );
+}
+
 function GuessBox({ user, guesses, saveGuess }) {
   const mine = guesses.find((g) => g.author === user);
   const [editing, setEditing] = useState(false);
@@ -756,6 +800,7 @@ function GuessBox({ user, guesses, saveGuess }) {
   const [reason, setReason] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [shown, setShown] = useState(true);
   const [shown, setShown] = useState(true);
   const open = !mine || editing;
   const ok = city.trim().length >= 2;
@@ -795,6 +840,15 @@ function GuessBox({ user, guesses, saveGuess }) {
       />
       {shown && (
       <div className="mt-3">
+      <FoldHeader
+        icon={<Plane className="w-5 h-5 text-amber-400 shrink-0" aria-hidden="true" />}
+        title="Vart ska vi?"
+        note={mine ? 'Gissat' : 'Ej gissat'}
+        open={shown}
+        onToggle={() => setShown(!shown)}
+      />
+      {shown && (
+      <div className="mt-3">
       {!open ? (
         <div className={cx('rounded-xl bg-slate-950 border border-amber-400 p-3', GLOW_GOLD)}>
           <p className="text-xs uppercase tracking-[0.18em] text-amber-400 font-semibold">Din gissning är inlåst</p>
@@ -825,6 +879,8 @@ function GuessBox({ user, guesses, saveGuess }) {
           </div>
           <p role="alert" className="text-sm text-red-400 min-h-5">{msg || (!ok && city ? 'Skriv minst två tecken i stad.' : '')}</p>
         </form>
+      )}
+      </div>
       )}
       </div>
       )}
@@ -1073,7 +1129,224 @@ function Penalty({ data, mut, user }) {
   );
 }
 
+/* ---------- Straffläggning (HTML5 Canvas) ---------- */
+// Spelplan i canvas-koordinater: målram, straffpunkt och målvaktens utgångsläge.
+const PK = { W: 720, H: 480, left: 140, right: 580, top: 90, ground: 300, ballX: 360, ballY: 430, keepX: 360, keepY: 245 };
+const pingPong = (x) => { const f = x % 2; return f < 1 ? f : 2 - f; };
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function drawPenalty(cv, g) {
+  const c = cv.getContext('2d');
+  const { W, H, left, right, top, ground } = PK;
+  c.clearRect(0, 0, W, H);
+  c.fillStyle = '#020617'; c.fillRect(0, 0, W, ground);
+  const grass = c.createLinearGradient(0, ground, 0, H);
+  grass.addColorStop(0, '#047857'); grass.addColorStop(1, '#064e3b');
+  c.fillStyle = grass; c.fillRect(0, ground, W, H - ground);
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(0, ground); c.lineTo(W, ground); c.stroke();
+  c.beginPath(); c.ellipse(PK.ballX, PK.ballY + 8, 26, 7, 0, 0, Math.PI * 2); c.stroke();
+
+  // Nät och målram
+  c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 1;
+  for (let x = left; x <= right; x += 22) { c.beginPath(); c.moveTo(x, top); c.lineTo(x, ground); c.stroke(); }
+  for (let y = top; y <= ground; y += 21) { c.beginPath(); c.moveTo(left, y); c.lineTo(right, y); c.stroke(); }
+  c.strokeStyle = '#f8fafc'; c.lineWidth = 8; c.lineJoin = 'round';
+  c.beginPath(); c.moveTo(left, ground); c.lineTo(left, top); c.lineTo(right, top); c.lineTo(right, ground); c.stroke();
+
+  const moving = g.phase === 'fly' || g.phase === 'result';
+  const e = moving ? 1 - (1 - g.p) * (1 - g.p) : 0;
+
+  // Målvakt
+  const kx = lerp(PK.keepX, g.kx, e);
+  const ky = lerp(PK.keepY, g.ky, e);
+  const lean = moving ? Math.max(-1.2, Math.min(1.2, (g.kx - PK.keepX) / 170)) * e : 0;
+  c.save();
+  c.translate(kx, ky); c.rotate(lean);
+  c.strokeStyle = '#fbbf24'; c.lineWidth = 9; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(-14, -22); c.lineTo(-34, -52); c.moveTo(14, -22); c.lineTo(34, -52); c.stroke();
+  c.beginPath(); c.moveTo(-9, 30); c.lineTo(-13, 55); c.moveTo(9, 30); c.lineTo(13, 55); c.stroke();
+  c.fillStyle = '#fbbf24'; c.fillRect(-18, -30, 36, 62);
+  c.fillStyle = '#020617'; c.font = '900 22px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('1', 0, 0);
+  c.fillStyle = '#fde68a'; c.beginPath(); c.arc(0, -44, 13, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#34d399';
+  c.beginPath(); c.arc(-34, -54, 8, 0, Math.PI * 2); c.fill();
+  c.beginPath(); c.arc(34, -54, 8, 0, Math.PI * 2); c.fill();
+  c.restore();
+
+  // Sikte
+  if (g.phase === 'aimX' || g.phase === 'aimY') {
+    const ax = g.phase === 'aimX' ? g.ax : g.tx;
+    const ay = g.phase === 'aimY' ? g.ay : 195;
+    c.strokeStyle = 'rgba(52,211,153,.55)'; c.lineWidth = 2; c.setLineDash([8, 8]);
+    c.beginPath();
+    if (g.phase === 'aimX') { c.moveTo(ax, 50); c.lineTo(ax, ground + 10); } else { c.moveTo(90, ay); c.lineTo(630, ay); }
+    c.stroke(); c.setLineDash([]);
+    c.strokeStyle = '#34d399'; c.lineWidth = 4;
+    c.beginPath(); c.arc(ax, ay, 18, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.moveTo(ax - 26, ay); c.lineTo(ax + 26, ay); c.moveTo(ax, ay - 26); c.lineTo(ax, ay + 26); c.stroke();
+  }
+
+  // Boll
+  const bx = moving ? lerp(PK.ballX, g.tx, e) : PK.ballX;
+  const by = moving ? lerp(PK.ballY, g.ty, e) - Math.sin(Math.PI * g.p) * 18 : PK.ballY;
+  const br = moving ? lerp(16, 10, e) : 16;
+  c.fillStyle = '#f8fafc'; c.beginPath(); c.arc(bx, by, br, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#020617'; c.lineWidth = 2; c.stroke();
+  c.fillStyle = '#020617'; c.beginPath(); c.arc(bx, by, br * 0.35, 0, Math.PI * 2); c.fill();
+
+  // Text på planen
+  let text = '';
+  let color = '#f8fafc';
+  if (g.phase === 'idle') text = 'TRYCK PÅ STARTA';
+  else if (g.phase === 'over') text = `SLUT: ${g.streak} MÅL I RAD`;
+  else if (g.phase === 'result') {
+    if (g.outcome === 'goal') { text = 'MÅL!'; color = '#34d399'; }
+    else { text = g.outcome === 'save' ? 'RÄDDNING!' : 'UTANFÖR!'; color = '#f87171'; }
+  }
+  if (text) {
+    c.font = `900 ${text.length > 10 ? 40 : 64}px system-ui, sans-serif`;
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.lineWidth = 8; c.strokeStyle = '#020617'; c.strokeText(text, W / 2, 190);
+    c.fillStyle = color; c.fillText(text, W / 2, 190);
+  }
+}
+
+function Penalty({ data, mut, user }) {
+  const cvRef = useRef(null);
+  const g = useRef({ phase: 'idle', t0: 0, p: 0, streak: 0, ax: 360, ay: 195, tx: 360, ty: 195, kx: PK.keepX, ky: PK.keepY, outcome: null });
+  const [ui, setUi] = useState({ phase: 'idle', streak: 0, record: false });
+  const [shown, setShown] = useState(true);
+  const scores = data.scores || {};
+  const best = scores[user] || 0;
+  const live = useRef({ best, mut });
+  live.current = { best, mut };
+
+  useEffect(() => {
+    let raf = 0;
+    const frame = (now) => {
+      const s = g.current;
+      const t = (now - s.t0) / 1000;
+      const speed = Math.min(2.2, 0.8 + s.streak * 0.12); // siktet går fortare för varje mål
+      if (s.phase === 'aimX') s.ax = 100 + 520 * pingPong(t * speed);
+      else if (s.phase === 'aimY') s.ay = 290 - 230 * pingPong(t * speed * 1.15);
+      else if (s.phase === 'fly') {
+        s.p = Math.min(1, t / 0.5);
+        if (s.p >= 1) {
+          s.phase = 'result'; s.t0 = now;
+          if (s.outcome === 'goal') { s.streak += 1; Sound.pop(s.streak * 3); Sound.burst(0, 0.5, 0.12, 'bandpass', 1200); }
+          else Sound.error();
+          setUi({ phase: 'result', streak: s.streak, record: false });
+        }
+      } else if (s.phase === 'result' && t > 1) {
+        if (s.outcome === 'goal') {
+          s.phase = 'aimX'; s.t0 = now; s.p = 0;
+          setUi({ phase: 'aimX', streak: s.streak, record: false });
+        } else {
+          s.phase = 'over';
+          const record = s.streak > live.current.best;
+          if (record) {
+            const n = s.streak;
+            live.current.mut((d) => { if ((d.scores[user] || 0) < n) d.scores[user] = n; });
+            Sound.fanfare();
+            Confetti.burst(200);
+          }
+          setUi({ phase: 'over', streak: s.streak, record });
+        }
+      }
+      if (cvRef.current) drawPenalty(cvRef.current, s);
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [user]);
+
+  const tap = () => {
+    const s = g.current;
+    const now = performance.now();
+    if (s.phase === 'idle' || s.phase === 'over') {
+      Sound.tap();
+      s.streak = 0; s.p = 0; s.outcome = null; s.phase = 'aimX'; s.t0 = now;
+      setUi({ phase: 'aimX', streak: 0, record: false });
+    } else if (s.phase === 'aimX') {
+      Sound.tap();
+      s.tx = s.ax; s.phase = 'aimY'; s.t0 = now;
+      setUi({ phase: 'aimY', streak: s.streak, record: false });
+    } else if (s.phase === 'aimY') {
+      s.ty = s.ay;
+      // Målvakten läser skytten bättre ju längre sviten är.
+      const reads = Math.random() < Math.min(0.75, 0.3 + s.streak * 0.06);
+      const kx = reads ? s.tx + (Math.random() * 140 - 70) : 170 + Math.random() * 380;
+      const ky = reads ? s.ty + (Math.random() * 80 - 40) : 120 + Math.random() * 150;
+      s.kx = Math.max(170, Math.min(550, kx));
+      s.ky = Math.max(125, Math.min(250, ky));
+      const inGoal = s.tx > PK.left + 12 && s.tx < PK.right - 12 && s.ty > PK.top + 12 && s.ty < PK.ground;
+      const saved = Math.abs(s.tx - s.kx) < 62 && Math.abs(s.ty - s.ky) < 58;
+      s.outcome = !inGoal ? 'miss' : saved ? 'save' : 'goal';
+      s.phase = 'fly'; s.t0 = now; s.p = 0;
+      Sound.kick();
+      setUi({ phase: 'fly', streak: s.streak, record: false });
+    }
+  };
+
+  const label = { idle: 'Starta', aimX: 'Lås sidled', aimY: 'Skjut', fly: 'Skott på väg', result: 'Vänta', over: 'Spela igen' }[ui.phase];
+  const busy = ui.phase === 'fly' || ui.phase === 'result';
+  const table = BOYS.filter((n) => scores[n] > 0).sort((a, b) => scores[b] - scores[a]);
+
+  return (
+    <Card>
+      <FoldHeader
+        icon={<Trophy className="w-5 h-5 text-amber-400 shrink-0" aria-hidden="true" />}
+        title="Straffläggning"
+        note={`Ditt rekord: ${best}`}
+        open={shown}
+        onToggle={() => setShown(!shown)}
+      />
+      {shown && (
+      <div className="mt-3">
+      <canvas
+        ref={cvRef}
+        width={PK.W}
+        height={PK.H}
+        role="img"
+        aria-label="Straffläggning: mål med målvakt"
+        className="block w-full h-auto rounded-xl border border-slate-700 select-none"
+      />
+      <div className="flex items-center gap-3 mt-3">
+        <div className="flex-1 min-w-0">
+          <p className="font-black text-3xl leading-none tabular-nums text-amber-400">{ui.streak}<span className="text-sm text-slate-400 ml-1.5">mål i rad</span></p>
+          <p className="text-xs text-slate-400 mt-1" role="status">
+            {ui.phase === 'over' ? (ui.record ? 'Nytt personligt rekord!' : 'Sviten bröts. Försök igen.') : 'Ett tryck låser sidled, nästa tryck låser höjden och skjuter.'}
+          </p>
+        </div>
+        <button type="button" onClick={tap} disabled={busy} className={cx(PRESS, 'rounded-xl px-5 py-3 font-bold shrink-0', busy ? 'bg-slate-800 text-slate-400' : cx('bg-amber-400 text-slate-950', GLOW_GOLD))}>
+          {label}
+        </button>
+      </div>
+      <h3 className={cx(DISPLAY, 'text-lg mt-4 mb-2')}>Topplista</h3>
+      {table.length === 0 ? (
+        <p className="text-sm text-slate-400">Ingen har satt en straff än.</p>
+      ) : (
+        <ol className="flex flex-col gap-1.5">
+          {table.map((n, i) => (
+            <li key={n} className={cx('flex items-center gap-3 rounded-xl bg-slate-950 border px-3 h-10', n === user ? 'border-amber-400' : 'border-slate-700')}>
+              <span className="font-black text-lg w-5 tabular-nums text-amber-400">{i + 1}</span>
+              <Avatar name={n} size="sm" />
+              <span className="font-semibold flex-1">{n}</span>
+              <span className="font-black tabular-nums">{scores[n]}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      </div>
+      )}
+    </Card>
+  );
+}
+
 /* ---------- Deltagarvy (innan RELEASE_MODE) ---------- */
+function Classified({ user, onLogout, intel, shared }) {
+  const missionDay = activeMissionDay(shared.data.missions, Date.now());
 function Classified({ user, onLogout, intel, shared }) {
   const missionDay = activeMissionDay(shared.data.missions, Date.now());
   const start = itemDate(0, TRIP_TIME);
@@ -1106,6 +1379,9 @@ function Classified({ user, onLogout, intel, shared }) {
             <span className="h-3 rounded bg-slate-800 w-10/12" />
           </div>
         </section>
+        {missionDay && <MyMission data={shared.data} mut={shared.mut} user={user} day={missionDay} />}
+        {missionDay && <MissionBoard data={shared.data} user={user} day={missionDay} />}
+        <Penalty data={shared.data} mut={shared.mut} user={user} />
         {missionDay && <MyMission data={shared.data} mut={shared.mut} user={user} day={missionDay} />}
         {missionDay && <MissionBoard data={shared.data} user={user} day={missionDay} />}
         <Penalty data={shared.data} mut={shared.mut} user={user} />
@@ -1283,8 +1559,18 @@ function Captain({ data, mut, user }) {
   // Ställning och motiveringar visas först när en admin har avslöjat kvällen i Admin-fliken.
   const revealed = !!data.revealed[night];
   const openNights = NIGHTS.filter((n) => data.revealed[n.id]);
+  // Ställning och motiveringar visas först när en admin har avslöjat kvällen i Admin-fliken.
+  const revealed = !!data.revealed[night];
+  const openNights = NIGHTS.filter((n) => data.revealed[n.id]);
 
   useEffect(() => { setCand(null); setReason(''); }, [night, user]);
+
+  // Fira hos alla som har fliken öppen i ögonblicket kvällen avslöjas.
+  const seen = useRef({ night, revealed });
+  useEffect(() => {
+    if (seen.current.night === night && revealed && !seen.current.revealed) { Sound.fanfare(); Confetti.burst(220); }
+    seen.current = { night, revealed };
+  }, [night, revealed]);
 
   // Fira hos alla som har fliken öppen i ögonblicket kvällen avslöjas.
   const seen = useRef({ night, revealed });
@@ -1309,6 +1595,7 @@ function Captain({ data, mut, user }) {
     });
   };
 
+  const pool = scope === 'night' ? votes : openNights.flatMap((n) => data.votes[n.id]);
   const pool = scope === 'night' ? votes : openNights.flatMap((n) => data.votes[n.id]);
   const table = BOYS.map((n) => ({ n, c: pool.filter((v) => v.candidate === n).length }))
     .sort((a, b) => b.c - a.c || BOYS.indexOf(a.n) - BOYS.indexOf(b.n));
@@ -1402,6 +1689,26 @@ function Captain({ data, mut, user }) {
         </Card>
       ) : (
       <>
+      {!revealed ? (
+        <Card className={STRIPE}>
+          <div className="flex items-center gap-3">
+            <span className="w-12 h-12 rounded-full bg-slate-800 border border-amber-400 text-amber-400 flex items-center justify-center shrink-0">
+              <EyeOff className="w-6 h-6" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.18em] text-amber-400 font-semibold">Hemlig omröstning</p>
+              <p className={cx(DISPLAY, 'text-2xl mt-1 tabular-nums')}>{votes.length} av {BOYS.length} har röstat</p>
+            </div>
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div className="h-full bg-amber-400 transition-all duration-500" style={{ width: `${(votes.length / BOYS.length) * 100}%` }} />
+          </div>
+          <p className="text-sm text-slate-400 mt-3">
+            Ställningen och motiveringarna för {nightLabel.toLowerCase()} är dolda tills Reseledningen avslöjar dem.
+          </p>
+        </Card>
+      ) : (
+      <>
       <Card>
         <div className="flex items-center justify-between gap-3 mb-3">
           <h3 className={cx(DISPLAY, 'text-xl')}>Ställning</h3>
@@ -1424,6 +1731,7 @@ function Captain({ data, mut, user }) {
           ))}
         </ul>
         <p className="text-xs text-slate-400 mt-3 tabular-nums">
+          {scope === 'night' ? `${votes.length} av ${BOYS.length} har röstat ${nightLabel.toLowerCase()}.` : `${pool.length} röster från ${openNights.length} ${openNights.length === 1 ? 'avslöjad kväll' : 'avslöjade kvällar'}.`}
           {scope === 'night' ? `${votes.length} av ${BOYS.length} har röstat ${nightLabel.toLowerCase()}.` : `${pool.length} röster från ${openNights.length} ${openNights.length === 1 ? 'avslöjad kväll' : 'avslöjade kvällar'}.`}
         </p>
       </Card>
@@ -1459,6 +1767,8 @@ function Captain({ data, mut, user }) {
           </ul>
         )}
       </Card>
+      </>
+      )}
       </>
       )}
     </div>
@@ -2889,15 +3199,25 @@ function AdminTab({ data, mut, sync }) {
     mut((d) => { d.revealed[id] = on; });
     if (on) { Sound.fanfare(); Confetti.burst(200); } else Sound.tap();
   };
+
+  const toggleReveal = (id) => {
+    const on = !data.revealed[id];
+    mut((d) => { d.revealed[id] = on; });
+    if (on) { Sound.fanfare(); Confetti.burst(200); } else Sound.tap();
+  };
   const wipe = () => {
     if (!armed) { setArmed(true); setTimeout(() => setArmed(false), 3000); return; }
     setArmed(false);
     // Topplistan i straffläggningen (scores) sparas, liksom gissningarna som ligger i en egen tabell.
     mut((d) => { const scores = d.scores; Object.assign(d, freshData()); d.scores = scores; });
+    // Topplistan i straffläggningen (scores) sparas, liksom gissningarna som ligger i en egen tabell.
+    mut((d) => { const scores = d.scores; Object.assign(d, freshData()); d.scores = scores; });
     Sound.error();
+    setMsg(sync === 'live' ? 'Allt utom gissningar och topplista är nollställt för alla.' : 'Allt utom gissningar och topplista är nollställt på den här enheten.');
     setMsg(sync === 'live' ? 'Allt utom gissningar och topplista är nollställt för alla.' : 'Allt utom gissningar och topplista är nollställt på den här enheten.');
     setTimeout(() => setMsg(''), 2500);
   };
+
 
   return (
     <div className="flex flex-col gap-4">
@@ -2984,6 +3304,7 @@ function Shell({ user, onLogout, shared, intel }) {
   const [tab, setTab] = useState(() => {
     const s = readJSON(SKEY);
     return s && tabs.some((x) => x.id === s.tab) ? s.tab : 'agenda';
+    return s && tabs.some((x) => x.id === s.tab) ? s.tab : 'agenda';
   });
   const [muted, setMuted] = useState(false);
   const [more, setMore] = useState(false);
@@ -3038,6 +3359,12 @@ function Shell({ user, onLogout, shared, intel }) {
 
       <main className="max-w-xl mx-auto px-4 pt-5 pb-32">
         {tab === 'agenda' && <Agenda {...props} />}
+        {tab === 'agenda' && (
+          <div className="mt-6 flex flex-col gap-4">
+            <Penalty data={data} mut={mut} user={user} />
+            <GuessList guesses={intel.guesses} user={user} />
+          </div>
+        )}
         {tab === 'agenda' && (
           <div className="mt-6 flex flex-col gap-4">
             <Penalty data={data} mut={mut} user={user} />
@@ -3138,6 +3465,7 @@ export default function LeBoysApp() {
   let view = null;
   if (ready) {
     if (!user) view = <Login onLogin={set} />;
+    else if (!hasFullAccess(user)) view = <Classified user={user} intel={intel} shared={shared} onLogout={() => set(null)} />;
     else if (!hasFullAccess(user)) view = <Classified user={user} intel={intel} shared={shared} onLogout={() => set(null)} />;
     else view = <Shell key={user} user={user} shared={shared} intel={intel} onLogout={() => set(null)} />;
   }
