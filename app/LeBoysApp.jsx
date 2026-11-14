@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   Calendar, ShieldCheck, Music, Dices, Lock, LogOut, Volume2, VolumeX, Heart, Check, Play, Square,
-  ChevronDown, X, Copy, MapPin, Shirt, RotateCcw, Triangle, Trash2,
+  ChevronDown, X, Copy, MapPin, Shirt, RotateCcw, Triangle, Trash2, Plane, Pencil,
 } from 'lucide-react';
 
 /* =====================================================================
@@ -13,6 +14,13 @@ import {
            Admin-panelen längst ner visas alltid bara för Martin och Malte.
    ===================================================================== */
 const RELEASE_MODE = false;
+
+// Supabase: gemensam molndatabas som synkar data i realtid mellan alla deltagare.
+// Den publicerbara nyckeln är gjord för att ligga i webbläsarkod.
+const SUPABASE_URL = 'https://ljpuljpykmqngsirqejf.supabase.co';
+const SUPABASE_KEY = 'sb_publishable__qYkYANocLFO-ycXJEcyrw_uzG2jwUB';
+const SUPABASE_TABLE = 'app_state';
+const GUESSES_TABLE = 'guesses'; // Destinationsgissningar: { id, author (unik), city, reason, created_at }. Kolumnen country används inte.
 
 // Avresa: datum (torsdagen) och klockslag för samling.
 const TRIP_DATE = '2027-03-04';
@@ -32,6 +40,7 @@ const ACCOUNTS = {
 
 const BOYS = ['Martin', 'Malte', 'Max', 'Dylan', 'Victor', 'Petter', 'William', 'Axel'];
 const isAdmin = (name) => !!(ACCOUNTS[name] && ACCOUNTS[name].admin);
+const PARTICIPANTS = BOYS.filter((n) => !isAdmin(n));
 const hasFullAccess = (name) => RELEASE_MODE || isAdmin(name);
 
 // Spelarfärger: Tailwind-klasser för gränssnittet, hex för canvas-hjulet.
@@ -144,9 +153,8 @@ function readJSON(key) {
 function writeJSON(key, v) {
   try { window.localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* lagring saknas */ }
 }
-function loadData() {
+function normalizeData(r) {
   const f = freshData();
-  const r = readJSON(KEY);
   if (!r || typeof r !== 'object') return f;
   return {
     ...f, ...r,
@@ -157,6 +165,191 @@ function loadData() {
     checkins: r.checkins || {},
     wheel: Array.isArray(r.wheel) ? r.wheel.filter((n) => BOYS.includes(n)) : [],
   };
+}
+function loadData() {
+  return normalizeData(readJSON(KEY));
+}
+
+/* ---------- Realtidssynk (Supabase) ----------
+   Varje delad del av datan är en egen rad i tabellen app_state: { key, value (jsonb), version }.
+   En ändring skrivs bara om radens version är oförändrad sedan vi senast läste den.
+   Har någon annan hunnit före läses raden om och ändringen körs igen på den färska datan,
+   så att två samtidiga röster, hype-klick eller låtrader aldrig skriver över varandra.
+   Ej delat (stannar per enhet): beat-mönstret och listans visningsläge.
+   Gissningarna ligger i en egen tabell (guesses), se useIntel nedan. */
+const SHARED_KEYS = ['hype', 'checkins', 'votes', 'song', 'bpm', 'wheel'];
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+function useSharedData() {
+  const [data, setData] = useState(loadData);
+  const [sync, setSync] = useState('connecting'); // 'connecting' | 'live' | 'offline'
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const server = useRef({}); // key -> { value, version }, senast kända läge i databasen
+  const pending = useRef([]);
+  const busy = useRef(false);
+
+  useEffect(() => { writeJSON(KEY, data); }, [data]);
+
+  const accept = (rows) => {
+    const patch = {};
+    (rows || []).forEach((r) => {
+      if (!r || !SHARED_KEYS.includes(r.key)) return;
+      const cur = server.current[r.key];
+      if (cur && cur.version >= r.version) return;
+      server.current[r.key] = { value: r.value, version: r.version };
+      patch[r.key] = r.value;
+    });
+    if (Object.keys(patch).length) setData((d) => normalizeData({ ...d, ...patch }));
+  };
+
+  const pull = async (keys) => {
+    const { data: rows, error } = await supabase.from(SUPABASE_TABLE).select('key,value,version').in('key', keys);
+    if (error) throw error;
+    accept(rows);
+    return rows || [];
+  };
+
+  // Läser hela läget och skapar saknade rader (tomma) första gången appen körs mot databasen.
+  const pullAll = async () => {
+    const rows = await pull(SHARED_KEYS);
+    const have = new Set(rows.map((r) => r.key));
+    const fresh = freshData();
+    const missing = SHARED_KEYS.filter((k) => !have.has(k) && fresh[k] !== undefined);
+    if (missing.length) {
+      const { error } = await supabase
+        .from(SUPABASE_TABLE)
+        .upsert(missing.map((k) => ({ key: k, value: fresh[k], version: 1 })), { onConflict: 'key', ignoreDuplicates: true });
+      if (error) throw error;
+      await pull(missing);
+    }
+  };
+
+  // Kör alla väntande ändringar mot den senaste databasversionen och skriv de delar som ändrats.
+  const pushFns = async (fns) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      // Utgå från databasens läge (eller tomt läge för rader som inte finns än), aldrig från den lokala
+      // kopian, så att en ändring som redan visats lokalt inte räknas två gånger.
+      const known = {};
+      const fresh = freshData();
+      SHARED_KEYS.forEach((k) => {
+        if (server.current[k]) known[k] = server.current[k].value;
+        else if (fresh[k] !== undefined) known[k] = fresh[k];
+      });
+      const base = normalizeData({ ...dataRef.current, ...known });
+      const next = clone(base);
+      fns.forEach((fn) => fn(next));
+      const changed = SHARED_KEYS.filter((k) => next[k] !== undefined && !same(next[k], base[k]));
+      if (!changed.length) return;
+
+      let conflict = false;
+      for (const k of changed) {
+        const cur = server.current[k];
+        const res = cur
+          ? await supabase.from(SUPABASE_TABLE)
+            .update({ value: next[k], version: cur.version + 1, updated_at: new Date().toISOString() })
+            .eq('key', k).eq('version', cur.version)
+            .select('key,value,version')
+          : await supabase.from(SUPABASE_TABLE)
+            .insert({ key: k, value: next[k], version: 1 })
+            .select('key,value,version');
+        if (res.error && res.error.code !== '23505') throw res.error;
+        if (res.error || !res.data || !res.data.length) { conflict = true; await pull([k]); break; }
+        accept(res.data);
+      }
+      if (!conflict) return;
+    }
+  };
+
+  const flush = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      while (pending.current.length) {
+        const fns = pending.current.splice(0);
+        try {
+          await pushFns(fns);
+        } catch (e) {
+          pending.current.unshift(...fns); // försök igen vid nästa anslutning
+          throw e;
+        }
+      }
+      setSync('live');
+    } catch (e) {
+      setSync('offline');
+    } finally {
+      busy.current = false;
+    }
+  };
+
+  // Samma signatur som tidigare: ändringen syns direkt lokalt och skickas sedan till databasen.
+  const mut = (fn) => {
+    setData((d) => { const c = clone(d); fn(c); return c; });
+    pending.current.push(fn);
+    flush();
+  };
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => pullAll().then(() => { if (alive) { setSync('live'); flush(); } }, () => { if (alive) setSync('offline'); });
+    refresh();
+    const channel = supabase
+      .channel('app_state_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE }, (payload) => {
+        if (payload.new && payload.new.key) accept([payload.new]);
+      })
+      .subscribe((status) => {
+        if (!alive) return;
+        if (status === 'SUBSCRIBED') refresh(); // hämta det som missats vid (åter)anslutning
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setSync('offline');
+      });
+    const onFocus = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      alive = false;
+      document.removeEventListener('visibilitychange', onFocus);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  return { data, mut, sync };
+}
+
+/* ---------- Destinationsgissningar (tabellen guesses) ---------- */
+function useIntel() {
+  const [guesses, setGuesses] = useState([]);
+  const [status, setStatus] = useState('connecting'); // 'connecting' | 'live' | 'offline'
+
+  const load = async () => {
+    const g = await supabase.from(GUESSES_TABLE).select('id,author,city,reason,created_at').order('created_at', { ascending: true });
+    if (g.error) throw g.error;
+    setGuesses((g.data || []).filter((x) => BOYS.includes(x.author)));
+  };
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => load().then(() => { if (alive) setStatus('live'); }, () => { if (alive) setStatus('offline'); });
+    refresh();
+    const channel = supabase
+      .channel('intel_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: GUESSES_TABLE }, refresh)
+      .subscribe((st) => {
+        if (!alive) return;
+        if (st === 'SUBSCRIBED') refresh();
+        else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setStatus('offline');
+      });
+    return () => { alive = false; supabase.removeChannel(channel); };
+  }, []);
+
+  // En gissning per person: sparas om ifall man ändrar sig.
+  const saveGuess = async (guess) => {
+    const { error } = await supabase.from(GUESSES_TABLE).upsert(guess, { onConflict: 'author' });
+    if (error) throw error;
+    await load();
+  };
+
+  return { guesses, status, saveGuess };
 }
 
 /* ---------- Ljud (Web Audio API, inga ljudfiler) ---------- */
@@ -464,8 +657,110 @@ function Login({ onLogin }) {
   );
 }
 
+/* ---------- Destinationsgissningar ---------- */
+function GuessBox({ user, guesses, saveGuess }) {
+  const mine = guesses.find((g) => g.author === user);
+  const [editing, setEditing] = useState(false);
+  const [city, setCity] = useState('');
+  const [reason, setReason] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const open = !mine || editing;
+  const ok = city.trim().length >= 2;
+
+  const startEdit = () => {
+    Sound.tap();
+    setCity(mine.city); setReason(mine.reason || '');
+    setEditing(true);
+  };
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!ok || busy) return;
+    setBusy(true); setMsg('');
+    try {
+      // country skickas tom eftersom kolumnen finns kvar i tabellen och inte får vara null.
+      await saveGuess({ author: user, country: '', city: city.trim(), reason: reason.trim() || null });
+      setEditing(false);
+      Sound.fanfare();
+      Confetti.burst(160);
+    } catch (err) {
+      Sound.error();
+      setMsg('Gissningen kunde inte sparas. Kontrollera nätet och försök igen.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const field = 'w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-400';
+
+  return (
+    <Card>
+      <div className="flex items-center gap-2 mb-3">
+        <Plane className="w-5 h-5 text-amber-400" aria-hidden="true" />
+        <h2 className={cx(DISPLAY, 'text-2xl')}>Vart ska vi?</h2>
+      </div>
+      {!open ? (
+        <div className={cx('rounded-xl bg-slate-950 border border-amber-400 p-3', GLOW_GOLD)}>
+          <p className="text-xs uppercase tracking-[0.18em] text-amber-400 font-semibold">Din gissning är inlåst</p>
+          <p className={cx(DISPLAY, 'text-2xl mt-1 break-words')}>{mine.city}</p>
+          {mine.reason && <p className="text-sm text-slate-400 mt-2 break-words">{mine.reason}</p>}
+          <button type="button" onClick={startEdit} className={cx(PRESS, 'mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300 hover:border-amber-400')}>
+            <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Ändra gissning
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <p className="text-sm text-slate-400">Gissa vilken stad vi ska till. Du kan ändra dig fram till avresan.</p>
+          <div>
+            <label htmlFor="guess-city" className="block text-xs font-semibold text-slate-400 mb-1">Stad</label>
+            <input id="guess-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={60} placeholder="t.ex. Lissabon" className={field} />
+          </div>
+          <div>
+            <label htmlFor="guess-reason" className="block text-xs font-semibold text-slate-400 mb-1">Motivering <span className="text-slate-500">Frivilligt</span></label>
+            <textarea id="guess-reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} className={cx(field, 'resize-none')} />
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {editing && (
+              <button type="button" onClick={() => { Sound.tap(); setEditing(false); }} className="text-sm text-slate-400 hover:text-slate-100 px-2">Avbryt</button>
+            )}
+            <button type="submit" disabled={!ok || busy} className={cx(PRESS, 'flex items-center gap-2 rounded-xl px-5 py-3 font-bold', ok && !busy ? cx('bg-amber-400 text-slate-950', GLOW_GOLD) : 'bg-slate-800 text-slate-400 cursor-not-allowed')}>
+              <Lock className="w-4 h-4" aria-hidden="true" /> {busy ? 'Sparar' : 'Lås in gissning'}
+            </button>
+          </div>
+          <p role="alert" className="text-sm text-red-400 min-h-5">{msg || (!ok && city ? 'Skriv minst två tecken i stad.' : '')}</p>
+        </form>
+      )}
+    </Card>
+  );
+}
+
+function GuessList({ guesses, user }) {
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className={cx(DISPLAY, 'text-xl')}>Gissningar</h3>
+        <span className="text-xs text-slate-400 tabular-nums">{guesses.length} av {PARTICIPANTS.length} har gissat</span>
+      </div>
+      {guesses.length === 0 ? (
+        <p className="text-sm text-slate-400">Ingen har gissat än.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {guesses.map((g) => (
+            <Pop as="li" key={g.author} className={cx('flex items-start gap-2.5 rounded-xl bg-slate-950 border px-3 py-2.5', g.author === user ? 'border-amber-400' : 'border-slate-700')}>
+              <Avatar name={g.author} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm"><span className="font-semibold">{g.author}</span> <span className="text-slate-400">tror på</span> <span className={cx('font-semibold', PLAYER[g.author].text)}>{g.city}</span></p>
+                {g.reason && <p className="text-xs text-slate-400 mt-1 break-words">{g.reason}</p>}
+              </div>
+            </Pop>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 /* ---------- Deltagarvy (innan RELEASE_MODE) ---------- */
-function Classified({ user, onLogout }) {
+function Classified({ user, onLogout, intel }) {
   const start = itemDate(0, TRIP_TIME);
   const fmt = start.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   return (
@@ -496,6 +791,8 @@ function Classified({ user, onLogout }) {
             <span className="h-3 rounded bg-slate-800 w-10/12" />
           </div>
         </section>
+        <GuessBox user={user} guesses={intel.guesses} saveGuess={intel.saveGuess} />
+        <GuessList guesses={intel.guesses} user={user} />
       </Pop>
     </main>
   );
@@ -1232,7 +1529,7 @@ function Roulette({ data, mut }) {
 }
 
 /* ---------- Admin-panel (endast Martin och Malte) ---------- */
-function AdminPanel({ onReset }) {
+function AdminPanel({ onReset, sync, intel }) {
   const [armed, setArmed] = useState(false);
   const [msg, setMsg] = useState('');
   const wipe = () => {
@@ -1240,7 +1537,7 @@ function AdminPanel({ onReset }) {
     setArmed(false);
     onReset();
     Sound.error();
-    setMsg('All data på den här enheten är nollställd.');
+    setMsg(sync === 'live' ? 'Allt utom gissningarna är nollställt för alla.' : 'All data på den här enheten är nollställd.');
     setTimeout(() => setMsg(''), 2500);
   };
   return (
@@ -1253,8 +1550,12 @@ function AdminPanel({ onReset }) {
         <span className={cx('rounded-full border px-2 py-1 font-semibold', RELEASE_MODE ? 'border-emerald-400 text-emerald-400' : 'border-amber-400 text-amber-400')}>
           {RELEASE_MODE ? 'Släppt: alla åtta har åtkomst' : 'Hemligt läge: bara Reseledningen har åtkomst'}
         </span>
+        <span className={cx('rounded-full border px-2 py-1 font-semibold', sync === 'live' ? 'border-emerald-400 text-emerald-400' : sync === 'offline' ? 'border-red-400 text-red-400' : 'border-slate-700 text-slate-400')}>
+          {sync === 'live' ? 'Synkad live med molnet' : sync === 'offline' ? 'Ingen kontakt med molnet: sparas bara lokalt' : 'Ansluter till molnet'}
+        </span>
       </div>
       <p className="mt-2 min-h-4 text-emerald-400" role="status">{msg}</p>
+      <div className="mt-4 text-sm text-slate-100"><GuessList guesses={intel.guesses} /></div>
     </footer>
   );
 }
@@ -1267,10 +1568,8 @@ const TABS = [
   { id: 'roulette', label: 'Roulette', long: 'Lag-Roulette', Icon: Dices },
 ];
 
-function Shell({ user, onLogout }) {
-  const [data, setData] = useState(loadData);
-  useEffect(() => { writeJSON(KEY, data); }, [data]);
-  const mut = (fn) => setData((d) => { const c = clone(d); fn(c); return c; });
+function Shell({ user, onLogout, shared, intel }) {
+  const { data, mut, sync } = shared;
 
   const [tab, setTab] = useState(() => {
     const s = readJSON(SKEY);
@@ -1321,7 +1620,7 @@ function Shell({ user, onLogout }) {
         {tab === 'kapten' && <Captain {...props} />}
         {tab === 'studio' && <Studio {...props} />}
         {tab === 'roulette' && <Roulette {...props} />}
-        {isAdmin(user) && <AdminPanel onReset={() => setData(freshData())} />}
+        {isAdmin(user) && <AdminPanel sync={sync} intel={intel} onReset={() => mut((d) => { Object.assign(d, freshData()); })} />}
       </main>
 
       <nav aria-label="Huvudflikar" className="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur border-t border-slate-700">
@@ -1347,6 +1646,8 @@ function Shell({ user, onLogout }) {
 
 /* ---------- Rot ---------- */
 export default function LeBoysApp() {
+  const shared = useSharedData();
+  const intel = useIntel();
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState(null);
 
@@ -1366,8 +1667,8 @@ export default function LeBoysApp() {
   let view = null;
   if (ready) {
     if (!user) view = <Login onLogin={set} />;
-    else if (!hasFullAccess(user)) view = <Classified user={user} onLogout={() => set(null)} />;
-    else view = <Shell key={user} user={user} onLogout={() => set(null)} />;
+    else if (!hasFullAccess(user)) view = <Classified user={user} intel={intel} onLogout={() => set(null)} />;
+    else view = <Shell key={user} user={user} shared={shared} intel={intel} onLogout={() => set(null)} />;
   }
 
   return (
