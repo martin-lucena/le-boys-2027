@@ -12,10 +12,13 @@ import { clone } from './helpers';
 
 /* ---------- Lagring (localStorage) ---------- */
 // Namnen som datan sparas under i webbläsaren: KEY = all appdata, SKEY = vem som är inloggad och
-// vilken flik som är öppen, LOCAL_GUESSES_KEY = gissningar i lokalt testläge.
+// vilken flik som är öppen, LOCAL_GUESSES_KEY = gissningar i lokalt testläge, REVEAL_KEY = se nedan.
 export const KEY = 'leboys2027.data.v2';
 export const SKEY = 'leboys2027.session.v2';
 export const LOCAL_GUESSES_KEY = 'leboys2027.guesses.local';
+// REVEAL_KEY = vilka på den här telefonen som redan har sett avslöjandet av resmålet ({ namn: true }).
+// Används av app/LeBoysApp.jsx så att avslöjandet bara visas automatiskt en gång per person.
+export const REVEAL_KEY = 'leboys2027.reveal.seen';
 // Hemliga uppdrag: per dag vem som har vilket uppdrag (tasks), när det bockades av (done, ISO-tid),
 // eventuellt bevis (proof) och admins dom (verdict: 'ok' eller 'fail').
 // active: 'auto' följer resans datum, 'off' stänger av, annars ett dag-id (tors, fre, lor, son).
@@ -51,6 +54,10 @@ export const freshData = () => ({
   // release: är hemsidan upplåst för alla? open = ja eller nej, by = vilken admin som låste upp,
   // at = när (tidpunkt i millisekunder). Ändras bara från Admin-fliken, med lösenord.
   release: { open: false, by: null, at: null },
+  // destination: resmålet, { city }. Tom text tills en admin låser upp hemsidan och fyller i staden.
+  // Sparas först vid upplåsningen, så att ingen kan läsa resmålet i databasen i förväg.
+  // När city är ifylld visas avslöjandet (components/Reveal.jsx) och rätt gissning ger poäng.
+  destination: { city: '' },
 });
 // Läser ett sparat värde ur webbläsarens minne. Ger null om inget finns eller om det inte går att läsa.
 export function readJSON(key) {
@@ -82,6 +89,8 @@ export function normalizeData(r) {
     release: r.release && r.release.open
       ? { open: true, by: r.release.by || null, at: r.release.at || null }
       : { open: false, by: null, at: null },
+    // Resmålet: allt som inte är en text räknas som "inte satt än".
+    destination: { city: r.destination && typeof r.destination.city === 'string' ? r.destination.city : '' },
     fines: Array.isArray(r.fines) ? r.fines.filter((x) => x && BOYS.includes(x.to) && BOYS.includes(x.from)) : [],
     quotes: Array.isArray(r.quotes) ? r.quotes.filter((x) => x && BOYS.includes(x.who)).map((x) => ({ ...x, laughs: Array.isArray(x.laughs) ? x.laughs : [] })) : [],
     pubgolf: {
