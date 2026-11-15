@@ -25,12 +25,18 @@ Deltagare: Martin, Malte, Max, Dylan, Victor, Petter, William och Axel.
 - **Deltagare:** övriga sex.
 - Varje person loggar in med sitt namn och ett personligt, skiftlägeskänsligt lösenord. Lösenorden står i `lib/config.js`. De får aldrig visas på skärmen eller skrivas ut i svar.
 
-## RELEASE_MODE
+## Släpp hemsidan (release och RELEASE_MODE)
 
-`RELEASE_MODE` i `lib/config.js` styr vad deltagarna ser:
+Före resan ser admins hela appen. Deltagarna ser bara väntsidan (`components/Classified.jsx`): nedräkning, Klassificerat-rutan, straffläggningen, gissa resmålet och listan med gissningar. Admin-fliken visas alltid bara för admins.
 
-- `false` (före resan): admins ser hela appen. Deltagarna ser bara väntsidan (`components/Classified.jsx`): nedräkning, Klassificerat-rutan, straffläggningen, gissa resmålet och listan med gissningar.
-- `true` (sätts på resdagen): alla får hela appen. Admin-fliken visas fortfarande bara för admins.
+Hemsidan släpps för alla på ett av två sätt. `hasFullAccess(name, release)` i `lib/constants.js` ger full åtkomst om personen är admin, om `RELEASE_MODE` är `true` eller om `release.open` är `true`.
+
+- **I appen (det vanliga sättet):** rutan "Släpp hemsidan" i Admin-fliken. "Lås upp för alla" kräver lösenordet `RELEASE_PASSWORD`, som finns i `lib/config.js`. Rätt lösenord sparar den delade nyckeln `release` som `{ open: true, by, at }`. "Lås igen" kräver samma lösenord. Fel lösenord ändrar ingenting.
+- **I koden (reserv):** `RELEASE_MODE = true` i `lib/config.js` öppnar sidan oavsett knappen.
+
+Lösenordet får aldrig visas på skärmen, skrivas ut i svar eller skrivas in i den här filen.
+
+Deltagare som har väntsidan uppe när sidan släpps får avslöjandeskärmen (`components/Reveal.jsx`) med fanfar, konfetti och knappen "Gå in", direkt via synken och utan omladdning. Det styrs av `waited` i `app/LeBoysApp.jsx`.
 
 ## Struktur
 
@@ -39,7 +45,8 @@ app/LeBoysApp.jsx        Rot: inloggning, väntsida eller appskalet
 components/
   Shell.jsx              Sidhuvud, flikrad och Mer-meny
   Login.jsx              Inloggning (namn + lösenord, skakar vid fel)
-  Classified.jsx         Deltagarnas väntsida före RELEASE_MODE
+  Classified.jsx         Deltagarnas väntsida tills hemsidan släpps
+  Reveal.jsx             Avslöjandeskärmen "Hemsidan är öppen!" när sidan släpps
   Agenda.jsx             Tidslinje tors–sön, hype per punkt, incheckning, admins redigering av agendan
   Captain.jsx            Lagkapten: hemlig röstning, avslöjas per kväll
   Missions.jsx           Hemliga uppdrag: eget uppdrag, tavla, flik, admin
@@ -58,7 +65,7 @@ hooks/
   useIntel.js            Gissningar mot tabellen guesses
   useNow.js              Klocka som tickar varje sekund
 lib/
-  config.js              RELEASE_MODE, Supabase, avresedatum, konton, POINTS
+  config.js              RELEASE_MODE, RELEASE_PASSWORD, Supabase, avresedatum, konton, POINTS
   constants.js           Deltagare, färger, kvällar, låtblock, beat, dagarna och agendans startvärde (DAYS)
   agenda.js              Agendan som delad data: startvärde (freshAgenda), sortering, kontroll
   pubgolf.js             Pub Golf-lag, bana (PUB_HOLES) och poängräkning
@@ -83,7 +90,7 @@ utils/
 
 All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jsonb), version, updated_at }`. Synkas via `hooks/useSharedData.js`.
 
-- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`.
+- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`.
 - Ändra alltid data med `mut((d) => { ... })`. Den uppdaterar direkt lokalt och skriver sedan till databasen med versionskontroll: krockar två skrivningar läses raden om och ändringen körs igen. Funktionen till `mut` måste därför tåla att köras flera gånger mot färsk data.
 - Ny delad data: lägg till fältet i `freshData` och `normalizeData` i `utils/storage.js` och nyckeln i `SHARED_KEYS`. Appen skapar raden själv, ingen SQL behövs.
 - Gissningarna ligger i en egen tabell, `guesses` (`author` unik, `city`, `reason`). Kolumnen `country` används inte och skickas tom.
@@ -102,6 +109,7 @@ All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jso
 - Ladda testdata, rensa lag och poäng, och rensa enskilda hål i Pub Golf.
 - Ta bort andras böter och citat (övriga kan bara ta bort sina egna).
 - Redigera agendan (ändra, ta bort och lägga till programpunkter) och återställa den till standard.
+- Låsa upp hemsidan för alla och låsa den igen (kräver dessutom lösenordet `RELEASE_PASSWORD`).
 
 Kontrollera alltid med `isAdmin(user)` både när knappen visas och innan åtgärden utförs.
 
@@ -132,7 +140,7 @@ Pub Golf räknas först när alla lag spelat alla hål, och testdata räknas ald
 
 ## Nollställ all data (Admin-fliken)
 
-Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf, låttext och roulette. **Behåller** gissningarna, straffläggningens topplista och agendan (agendan återställs bara med sin egen knapp).
+Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf, låttext och roulette. **Behåller** gissningarna, straffläggningens topplista, agendan (återställs bara med sin egen knapp) och släppläget `release` (ändras bara i rutan "Släpp hemsidan").
 
 ## Borttaget på användarens begäran (lägg inte tillbaka)
 

@@ -36,12 +36,15 @@ Stämmer lösenordet anropar `Login` funktionen `onLogin` med namnet. `LeBoysApp
 | Fil | Vad den gör |
 |---|---|
 | `lib/constants.js` | `hasFullAccess` och `isAdmin` avgör vad personen får se. |
-| `lib/config.js` | `RELEASE_MODE` styr om deltagarna får se hela appen. |
+| `lib/config.js` | `RELEASE_MODE` är reserven i koden som öppnar appen för alla. |
+| `components/AdminTab.jsx` | Rutan "Släpp hemsidan", där en admin låser upp appen för alla med ett lösenord. |
 | `components/Classified.jsx` | Väntsidan för deltagarna före resan. |
+| `components/Reveal.jsx` | Avslöjandeskärmen som visas när hemsidan just har släppts. |
 | `components/Shell.jsx` | Hela appen: sidhuvud, flikrad och Mer-meny. |
 
 - Martin och Malte får alltid `Shell`.
-- Övriga får `Classified` så länge `RELEASE_MODE` är `false`, och `Shell` när den är `true`.
+- Övriga får `Classified` tills hemsidan släpps, och därefter `Shell`. Hemsidan släpps när en admin låser upp den i Admin-fliken (sparas som `release` i den delade datan) eller när `RELEASE_MODE` sätts till `true` i koden.
+- Den som har väntsidan uppe just när hemsidan släpps får först avslöjandeskärmen (`Reveal`) och kommer till `Shell` med knappen "Gå in".
 
 `Shell` håller reda på vilken flik som är öppen och visar rätt komponent, till exempel `components/Captain.jsx`. Varje flik får med sig tre saker: `data` (all delad data), `mut` (funktionen som ändrar data) och `user` (den inloggade).
 

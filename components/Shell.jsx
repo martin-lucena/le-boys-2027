@@ -138,7 +138,7 @@ export function Shell({ user, onLogout, shared, intel }) {
         {tab === 'studio' && <Studio {...props} />}
         {tab === 'roulette' && <Roulette {...props} />}
         {/* ADMIN-KONTROLL: Admin-fliken ritas bara för Martin och Malte, även om någon annan skulle lyckas välja den. */}
-        {tab === 'admin' && isAdmin(user) && <AdminTab data={data} mut={mut} sync={sync} />}
+        {tab === 'admin' && isAdmin(user) && <AdminTab data={data} mut={mut} sync={sync} user={user} />}
       </main>
 
       {/* Mer-menyn: visas ovanpå sidan när more är true. Ett tryck utanför rutan stänger den. */}

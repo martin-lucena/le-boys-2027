@@ -1,7 +1,8 @@
 // VÄNTSIDAN (DELTAGARNAS VY FÖRE RESAN).
 // Vad: nedräkning till avresan, rutan Klassificerat, dagens uppdrag (om något gäller), straffläggningen,
 // gissa resmålet och listan med gissningar.
-// Var: visas för de sex deltagarna så länge RELEASE_MODE är false i lib/config.js.
+// Var: visas för de sex deltagarna tills hemsidan släpps: antingen låser en admin upp den i
+// Admin-fliken, eller så sätts RELEASE_MODE till true i lib/config.js.
 // Martin och Malte ser aldrig den här sidan.
 // Används av: app/LeBoysApp.jsx.
 

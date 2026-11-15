@@ -48,6 +48,9 @@ export const freshData = () => ({
   pubgolf: freshPubGolf(),
   // agendan: dag-id -> lista med programpunkter. Startvärdet är punkterna i DAYS. Se lib/agenda.js.
   agenda: freshAgenda(),
+  // release: är hemsidan upplåst för alla? open = ja eller nej, by = vilken admin som låste upp,
+  // at = när (tidpunkt i millisekunder). Ändras bara från Admin-fliken, med lösenord.
+  release: { open: false, by: null, at: null },
 });
 // Läser ett sparat värde ur webbläsarens minne. Ger null om inget finns eller om det inte går att läsa.
 export function readJSON(key) {
@@ -75,6 +78,10 @@ export function normalizeData(r) {
     revealed: { ...f.revealed, ...r.revealed },
     // Agendan: saknade dagar fylls med standardpunkterna, trasiga punkter rensas bort.
     agenda: normalizeAgenda(r.agenda),
+    // Släppläget: allt som inte tydligt säger "öppen" räknas som stängt.
+    release: r.release && r.release.open
+      ? { open: true, by: r.release.by || null, at: r.release.at || null }
+      : { open: false, by: null, at: null },
     fines: Array.isArray(r.fines) ? r.fines.filter((x) => x && BOYS.includes(x.to) && BOYS.includes(x.from)) : [],
     quotes: Array.isArray(r.quotes) ? r.quotes.filter((x) => x && BOYS.includes(x.who)).map((x) => ({ ...x, laughs: Array.isArray(x.laughs) ? x.laughs : [] })) : [],
     pubgolf: {
