@@ -85,8 +85,9 @@ export function AdminTab({ data, mut, sync, user }) {
     // SPARAR TILL SUPABASE: data.release, och vid upplåsning även data.destination (resmålets stad).
     // Alla får det nya läget direkt via synken. När staden är satt visas avslöjandet hos var och en
     // (se app/LeBoysApp.jsx och components/Reveal.jsx). Vid Lås igen ligger staden kvar orörd.
+    // Bara staden ändras: listan över dem som redan har sett avslöjandet (seen) ligger kvar.
     mut((d) => {
-      if (opening) d.destination = { city: dest };
+      if (opening) d.destination.city = dest;
       d.release = next;
     });
     if (next.open) { Sound.fanfare(); Confetti.burst(200); } else Sound.tap();
@@ -104,9 +105,10 @@ export function AdminTab({ data, mut, sync, user }) {
     if (!isAdmin(user) || !release.open) return;
     const dest = newCity.trim();
     if (!dest) return;
-    // SPARAR TILL SUPABASE: data.destination. Poängen för rätt gissning räknas direkt om mot den nya
-    // staden. Den som redan har sett avslöjandet får det inte automatiskt en gång till.
-    mut((d) => { d.destination = { city: dest }; });
+    // SPARAR TILL SUPABASE: data.destination.city. Poängen för rätt gissning räknas direkt om mot den
+    // nya staden. Listan seen rörs inte, så den som redan har sett avslöjandet får det inte
+    // automatiskt en gång till.
+    mut((d) => { d.destination.city = dest; });
     Sound.pop(10);
     setEditCity(false);
     setNewCity('');

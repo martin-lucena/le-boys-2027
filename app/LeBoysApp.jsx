@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react';
 import { ACCOUNTS } from '../lib/config';
 import { hasFullAccess } from '../lib/constants';
-import { SKEY, REVEAL_KEY, readJSON, writeJSON } from '../utils/storage';
+import { SKEY, readJSON, writeJSON } from '../utils/storage';
 import { useSharedData } from '../hooks/useSharedData';
 import { useIntel } from '../hooks/useIntel';
 import { Login } from '../components/Login';
@@ -31,21 +31,15 @@ export default function LeBoysApp() {
   const [ready, setReady] = useState(false);
   // user = namnet på den som är inloggad, eller null om ingen är det.
   const [user, setUser] = useState(null);
-  // seen = vilka på den här telefonen som redan har sett avslöjandet av resmålet ({ namn: true }).
-  // Läses från och sparas i webbläsarens minne (REVEAL_KEY), så att avslöjandet bara visas
-  // automatiskt en gång per person.
-  const [seen, setSeen] = useState({});
   // replay = sant när man har tryckt "Se avslöjandet igen" i Agenda-fliken.
   const [replay, setReplay] = useState(false);
 
   // Sessionen läses först i webbläsaren, så att sidan även fungerar med serverrendering (Next.js).
   // Körs en gång, direkt när sidan har laddats i webbläsaren: läser sparad inloggning från localStorage
-  // och loggar in personen igen om namnet finns bland kontona. Läser också vilka som redan har sett
-  // avslöjandet. Sedan sätts ready till true.
+  // och loggar in personen igen om namnet finns bland kontona. Sedan sätts ready till true.
   useEffect(() => {
     const s = readJSON(SKEY) || {};
     if (ACCOUNTS[s.user]) setUser(s.user);
-    setSeen(readJSON(REVEAL_KEY) || {});
     setReady(true);
   }, []);
 
@@ -63,17 +57,24 @@ export default function LeBoysApp() {
   // alla på en gång, utan att någon behöver ladda om.
   const full = !!user && hasFullAccess(user, shared.data.release);
   // city = resmålets stad. Tom text tills en admin har låst upp hemsidan och fyllt i staden.
-  const city = shared.data.destination.city;
+  // seen = namnen på dem som redan har sett avslöjandet. Båda ligger i samma rad i databasen
+  // (data.destination) och kommer därför alltid samtidigt via synken.
+  const { city, seen } = shared.data.destination;
+  // synced = har vi fått svar från databasen (eller gett upp, eller kör lokalt testläge)? Innan
+  // dess visas bara kopian från telefonens minne, och den kan vara gammal: någon som redan har
+  // sett avslöjandet på en annan telefon skulle annars få se det blinka till här.
+  const synced = shared.sync !== 'connecting';
   // Avslöjandet visas ovanpå appen om personen är inne i appen, resmålet är satt och personen
   // antingen inte har sett det än eller har bett om att få se det igen. Räknas om varje gång datan
   // ändras: den som har väntsidan uppe när en admin låser upp får både full åtkomst och staden via
   // synken, och då dyker avslöjandet upp direkt, utan omladdning.
-  const showReveal = full && !!city && (replay || !seen[user]);
+  const showReveal = full && !!city && (replay || (synced && !seen.includes(user)));
   // Körs när man trycker Gå in: sparar att personen har sett avslöjandet och stänger det.
   const closeReveal = () => {
-    const next = { ...(readJSON(REVEAL_KEY) || {}), ...seen, [user]: true };
-    writeJSON(REVEAL_KEY, next);
-    setSeen(next);
+    // SPARAR TILL SUPABASE: mitt namn läggs till i data.destination.seen, om det inte redan står
+    // där. Eftersom det ligger i databasen visas avslöjandet inte automatiskt igen, varken på en
+    // annan telefon eller efter att webbläsarens historik har rensats.
+    shared.mut((d) => { if (!d.destination.seen.includes(user)) d.destination.seen.push(user); });
     setReplay(false);
     window.scrollTo(0, 0);
   };
