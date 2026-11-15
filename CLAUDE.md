@@ -51,7 +51,7 @@ components/
   Captain.jsx            Lagkapten: hemlig röstning, avslöjas per kväll
   Missions.jsx           Hemliga uppdrag: eget uppdrag, tavla, flik, admin
   Standings.jsx          Totaltabellen
-  PubGolf.jsx            Pub Golf: ställning, scorekort, bana, regler
+  PubGolf.jsx            Pub Golf: ställning, scorekort, bana, regler, admins redigering av banan
   Fines.jsx              Bötesrummet och admins godkännande
   Quotes.jsx             Kvällens citat
   Studio.jsx             Låtstudion med beat-maskin
@@ -68,7 +68,7 @@ lib/
   config.js              RELEASE_MODE, RELEASE_PASSWORD, Supabase, avresedatum, konton, POINTS
   constants.js           Deltagare, färger, kvällar, låtblock, beat, dagarna och agendans startvärde (DAYS)
   agenda.js              Agendan som delad data: startvärde (freshAgenda), sortering, kontroll
-  pubgolf.js             Pub Golf-lag, bana (PUB_HOLES) och poängräkning
+  pubgolf.js             Pub Golf-lag, banans startvärde (PUB_HOLES), banan som delad data (freshCourse, normalizeCourse) och poängräkning
   missions.js            Aktiv uppdragsdag och godkända uppdrag
   scoring.js             computeTotals för totaltabellen
   supabase.js            Supabase-klient och SHARED_KEYS
@@ -90,7 +90,7 @@ utils/
 
 All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jsonb), version, updated_at }`. Synkas via `hooks/useSharedData.js`.
 
-- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`.
+- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`, `pubcourse`.
 - Ändra alltid data med `mut((d) => { ... })`. Den uppdaterar direkt lokalt och skriver sedan till databasen med versionskontroll: krockar två skrivningar läses raden om och ändringen körs igen. Funktionen till `mut` måste därför tåla att köras flera gånger mot färsk data.
 - Ny delad data: lägg till fältet i `freshData` och `normalizeData` i `utils/storage.js` och nyckeln i `SHARED_KEYS`. Appen skapar raden själv, ingen SQL behövs.
 - Gissningarna ligger i en egen tabell, `guesses` (`author` unik, `city`, `reason`). Kolumnen `country` används inte och skickas tom.
@@ -108,6 +108,7 @@ All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jso
 - Nollställa all data.
 - Snurra och nollställa den officiella Pub Golf-lottningen.
 - Ladda testdata, rensa lag och poäng, och rensa enskilda hål i Pub Golf.
+- Redigera Pub Golf-banan (ändra, flytta, ta bort och lägga till hål) och återställa den till standard.
 - Ta bort andras böter och citat (övriga kan bara ta bort sina egna).
 - Redigera agendan (ändra, ta bort och lägga till programpunkter) och återställa den till standard.
 - Låsa upp hemsidan för alla och låsa den igen (kräver dessutom lösenordet `RELEASE_PASSWORD`).
@@ -120,7 +121,8 @@ Kontrollera alltid med `isAdmin(user)` både när knappen visas och innan åtgä
 - **Lagkapten:** en röst per person och kväll (tors, fre, lör), motivering krävs, man kan inte rösta på sig själv. Ställning och motiveringar är dolda tills en admin avslöjar kvällen. Inte ens admins ser resultatet i förväg.
 - **Uppdrag:** egen flik. Man ser bara sitt eget uppdrag, trycker "Klar!" med frivilligt bevis i text och får en tidsstämpel. Admin godkänner eller underkänner. Tavlan visar ordning och tid, aldrig uppdragstexterna.
 - **Bötesrummet:** vem som helst anmäler en bot, den gäller först när en admin godkänt den. Inget ljud alls i Bötesrummet eller vid godkännande.
-- **Pub Golf:** lagen lottas i rouletten i läget "Pub Golf-lag" (bara admins), fyra tvåmannalag. Slag = klunkar + straff − 1 om sidouppdraget klarades. Lägst vinner. Jämnt med par visas som `±0`, inte `E`. Pubarna i `PUB_HOLES` är platshållare.
+- **Pub Golf:** lagen lottas i rouletten i läget "Pub Golf-lag" (bara admins), fyra tvåmannalag. Slag = klunkar + straff − 1 om sidouppdraget klarades. Lägst vinner. Jämnt med par visas som `±0`, inte `E`.
+- **Pub Golf-banan:** redigeras i appen och ligger i den delade datan `pubcourse`, en lista med hål i spelordning: `[{ id, pub, drink, par, side }]`. `PUB_HOLES` i `lib/pubgolf.js` är bara startvärdet (platshållarpubar). Allt som visar eller räknar på banan läser från `data.pubcourse`: scorekortet, ställningen, tabellen per hål, banans par, testdatan och totaltabellens Pub Golf-poäng. Admins slår på redigeringsläget med "Redigera banan" i rutan Banan i Pub Golf-fliken och kan då ändra pub, dryck, par (1–6) och sidouppdrag, flytta hål upp och ner, ta bort hål och lägga till hål. Banan har 1–18 hål. Hålets nummer är dess plats i listan, men resultaten i `data.pubgolf.scores` sparas per lag och hål-`id` (`scores[lag][hål-id]`), så de följer med när ett hål flyttas. Standardhålen har id `'0'`–`'8'` (samma nycklar som resultaten hade innan banan gick att redigera), nya hål får `uid()`. Ändra aldrig ett håls id. Ta bort kräver alltid bekräftelse, och har hålet registrerade resultat visas en varning om att de försvinner. Hålets resultat tas då bort ur `data.pubgolf.scores`. "Rensa lag och poäng", rouletten och "Nollställ all data" ändrar inte banan. "Återställ banan till standard" finns i Admin-fliken (två tryck).
 - **Rouletten:** lägesväljaren har "Fritt snurr" till vänster (förvalt) och "Pub Golf-lag" till höger.
 - **Straffläggning:** skjuts bara med knappen under planen, inte genom att trycka på planen. Bara nya personliga rekord sparas.
 - **Gissningar:** bara stad och motivering. Listan visas på väntsidan och i Agenda-fliken, inte i Admin-fliken.
@@ -141,7 +143,7 @@ Pub Golf räknas först när alla lag spelat alla hål, och testdata räknas ald
 
 ## Nollställ all data (Admin-fliken)
 
-Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf, låttext och roulette. **Behåller** gissningarna, straffläggningens topplista, agendan (återställs bara med sin egen knapp) och släppläget `release` (ändras bara i rutan "Släpp hemsidan").
+Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf (lag och resultat), låttext och roulette. **Behåller** gissningarna, straffläggningens topplista, agendan och Pub Golf-banan `pubcourse` (återställs bara med var sin egen knapp) och släppläget `release` (ändras bara i rutan "Släpp hemsidan").
 
 ## Borttaget på användarens begäran (lägg inte tillbaka)
 
