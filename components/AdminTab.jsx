@@ -2,7 +2,7 @@
 // Vad: Reseledningens verktyg. Lås upp hemsidan för alla (med lösenord) och ange resmålets stad,
 // som då avslöjas för alla. Avslöja eller dölj
 // lagkaptensresultat, godkänn böter, dela ut och
-// bedöm uppdrag, återställ agendan till standard, se appens status och nollställ all data.
+// bedöm uppdrag, återställ agendan och Pub Golf-banan till standard, se appens status och nollställ all data.
 // Var: under Mer-menyn, BARA för Martin och Malte. Kontrollen görs i components/Shell.jsx.
 // Används av: components/Shell.jsx.
 
@@ -14,6 +14,7 @@ import { cx, animate, dayTime } from '../utils/helpers';
 import { PRESS, GLOW_GOLD, GLOW_GREEN, DISPLAY } from '../utils/styles';
 import { freshData } from '../utils/storage';
 import { freshAgenda } from '../lib/agenda';
+import { freshCourse } from '../lib/pubgolf';
 import { Sound } from '../utils/sound';
 import { Confetti } from '../utils/confetti';
 import { Card, SectionTitle } from './ui';
@@ -31,6 +32,9 @@ export function AdminTab({ data, mut, sync, user }) {
   // Samma sak för knappen Återställ agendan: armedAgenda = spärren, agendaMsg = kvittot efteråt.
   const [armedAgenda, setArmedAgenda] = useState(false);
   const [agendaMsg, setAgendaMsg] = useState('');
+  // Och för knappen Återställ banan: armedCourse = spärren, courseMsg = kvittot efteråt.
+  const [armedCourse, setArmedCourse] = useState(false);
+  const [courseMsg, setCourseMsg] = useState('');
   // Rutan Släpp hemsidan: release = släppläget i den delade datan ({ open, by, at }).
   // askPw = visas lösenordsfältet? pw = det man har skrivit i fältet. pwMsg = felmeddelandet.
   // releaseRef pekar på rutan på skärmen, så att den kan skakas vid fel lösenord.
@@ -130,12 +134,14 @@ export function AdminTab({ data, mut, sync, user }) {
     // Topplistan i straffläggningen (scores) sparas, liksom gissningarna som ligger i en egen tabell.
     // Agendan sparas också: den återställs bara med sin egen knapp, se resetAgenda nedan.
     // Släppläget (release) sparas också, så att en nollställning aldrig låser eller öppnar hemsidan.
+    // Pub Golf-banan (pubcourse) sparas också: den återställs bara med sin egen knapp, se resetCourse
+    // nedan. Lagen och resultaten i Pub Golf (pubgolf) nollställs däremot.
     // Resmålet (destination) sparas också: det ändras bara i rutan Släpp hemsidan.
     // SPARAR TILL SUPABASE: all delad data ersätts med tom data (freshData), utom straffläggningens
-    // topplista, agendan, släppläget och resmålet.
-    mut((d) => { const scores = d.scores; const agenda = d.agenda; const rel = d.release; const dest = d.destination; Object.assign(d, freshData()); d.scores = scores; d.agenda = agenda; d.release = rel; d.destination = dest; });
+    // topplista, agendan, Pub Golf-banan, släppläget och resmålet.
+    mut((d) => { const scores = d.scores; const agenda = d.agenda; const rel = d.release; const pubcourse = d.pubcourse; const dest = d.destination; Object.assign(d, freshData()); d.scores = scores; d.agenda = agenda; d.release = rel; d.pubcourse = pubcourse; d.destination = dest; });
     Sound.error();
-    setMsg(sync === 'live' ? 'Allt utom gissningar, topplista, agenda, släppläge och resmål är nollställt för alla.' : 'Allt utom gissningar, topplista, agenda, släppläge och resmål är nollställt på den här enheten.');
+    setMsg(sync === 'live' ? 'Allt utom gissningar, topplista, agenda, Pub Golf-bana, släppläge och resmål är nollställt för alla.' : 'Allt utom gissningar, topplista, agenda, Pub Golf-bana, släppläge och resmål är nollställt på den här enheten.');
     setTimeout(() => setMsg(''), 2500);
   };
   // Körs när man trycker Återställ agendan till standard. Kräver två tryck inom tre sekunder,
@@ -154,6 +160,27 @@ export function AdminTab({ data, mut, sync, user }) {
     Sound.error();
     setAgendaMsg('Agendan är återställd till standard.');
     setTimeout(() => setAgendaMsg(''), 2500);
+  };
+  // Körs när man trycker Återställ banan till standard. Kräver två tryck inom tre sekunder,
+  // precis som Återställ agendan. Hela Admin-fliken visas bara för Martin och Malte.
+  const resetCourse = () => {
+    // ADMIN-KONTROLL: kollas igen här, innan något sparas.
+    if (!isAdmin(user)) return;
+    if (!armedCourse) { Sound.tap(); setArmedCourse(true); setTimeout(() => setArmedCourse(false), 3000); return; }
+    setArmedCourse(false);
+    // SPARAR TILL SUPABASE: data.pubcourse ersätts med standardbanan (PUB_HOLES). Resultat på hål
+    // som inte längre finns tas bort ur data.pubgolf.scores. Standardhålen har alltid samma id,
+    // så resultat på standardhål som aldrig togs bort ligger kvar.
+    mut((d) => {
+      d.pubcourse = freshCourse();
+      const ids = new Set(d.pubcourse.map((x) => x.id));
+      Object.values(d.pubgolf.scores).forEach((card) => {
+        if (card) Object.keys(card).forEach((id) => { if (!ids.has(id)) delete card[id]; });
+      });
+    });
+    Sound.error();
+    setCourseMsg('Banan är återställd till standard.');
+    setTimeout(() => setCourseMsg(''), 2500);
   };
 
   return (
@@ -302,6 +329,18 @@ export function AdminTab({ data, mut, sync, user }) {
         <p className="mt-2 min-h-5 text-sm text-emerald-400" role="status">{agendaMsg}</p>
       </Card>
 
+      {/* Pub Golf-banan: kastar alla ändringar av banan. Två tryck krävs, som för agendan. */}
+      <Card>
+        <h3 className={cx(DISPLAY, 'text-xl')}>Pub Golf-banan</h3>
+        <p className="text-sm text-slate-400 mt-1">
+          Banan redigeras i Pub Golf-fliken med knappen Redigera banan. Här kan du kasta alla ändringar och gå tillbaka till standardbanan. Resultat på hål som försvinner tas bort. Går inte att ångra.
+        </p>
+        <button type="button" onClick={resetCourse} className={cx(PRESS, 'mt-3 flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-sm font-bold', armedCourse ? 'border-red-400 text-red-400 bg-red-400/10' : 'border-slate-700 text-slate-300 hover:border-red-400 hover:text-red-400')}>
+          <RotateCcw className="w-4 h-4" aria-hidden="true" /> {armedCourse ? 'Tryck igen för att återställa banan' : 'Återställ banan till standard'}
+        </button>
+        <p className="mt-2 min-h-5 text-sm text-emerald-400" role="status">{courseMsg}</p>
+      </Card>
+
       <Card>
         <h3 className={cx(DISPLAY, 'text-xl mb-3')}>Status och nollställning</h3>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -314,7 +353,7 @@ export function AdminTab({ data, mut, sync, user }) {
           </span>
         </div>
         <p className="text-sm text-slate-400 mt-4">
-          Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf, låttext och roulette. Gissningarna, straffläggningens topplista, agendan och resmålet ligger kvar, och hemsidan förblir låst eller öppen som den är. Går inte att ångra.
+          Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf (lag och resultat), låttext och roulette. Gissningarna, straffläggningens topplista, agendan, Pub Golf-banan och resmålet ligger kvar, och hemsidan förblir låst eller öppen som den är. Går inte att ångra.
         </p>
         <button type="button" onClick={wipe} className={cx(PRESS, 'mt-3 flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-sm font-bold', armed ? 'border-red-400 text-red-400 bg-red-400/10' : 'border-slate-700 text-slate-300 hover:border-red-400 hover:text-red-400')}>
           <Trash2 className="w-4 h-4" aria-hidden="true" /> {armed ? 'Tryck igen för att radera allt' : 'Nollställ all data'}

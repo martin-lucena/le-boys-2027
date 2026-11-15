@@ -8,6 +8,7 @@
 
 import { BOYS, DEFAULT_PATTERN } from '../lib/constants';
 import { freshAgenda, normalizeAgenda } from '../lib/agenda';
+import { freshCourse, normalizeCourse } from '../lib/pubgolf';
 import { clone } from './helpers';
 
 /* ---------- Lagring (localStorage) ---------- */
@@ -28,7 +29,8 @@ const freshMissions = () => ({
     son: { tasks: {}, done: {}, proof: {}, verdict: {} },
   },
 });
-// Pub Golf: draw är den officiella lottningen från rouletten, scores är lag -> hål -> resultat.
+// Pub Golf: draw är den officiella lottningen från rouletten, scores är lag -> hål-id -> resultat.
+// Själva banan ligger för sig i pubcourse (se freshData), så att den inte töms när lag och poäng rensas.
 export const freshPubGolf = () => ({ draw: [], scores: {}, test: false });
 // Hela datan i tomt skick. Används första gången appen körs och när en admin nollställer allt.
 export const freshData = () => ({
@@ -46,6 +48,9 @@ export const freshData = () => ({
   fines: [],   // böter: { id, from, to, reason, ts, approved }. Gäller först när en admin har godkänt.
   quotes: [],  // citat: { id, who, text, by, laughs: [namn], ts }
   pubgolf: freshPubGolf(),
+  // Pub Golf-banan: en lista med hål ({ id, pub, drink, par, side }) i spelordning. Startvärdet är
+  // PUB_HOLES. Redigeras av admins i Pub Golf-fliken. Se lib/pubgolf.js.
+  pubcourse: freshCourse(),
   // agendan: dag-id -> lista med programpunkter. Startvärdet är punkterna i DAYS. Se lib/agenda.js.
   agenda: freshAgenda(),
   // release: är hemsidan upplåst för alla? open = ja eller nej, by = vilken admin som låste upp,
@@ -85,6 +90,8 @@ export function normalizeData(r) {
     revealed: { ...f.revealed, ...r.revealed },
     // Agendan: saknade dagar fylls med standardpunkterna, trasiga punkter rensas bort.
     agenda: normalizeAgenda(r.agenda),
+    // Pub Golf-banan: saknas den eller är den trasig används standardbanan, trasiga hål rensas bort.
+    pubcourse: normalizeCourse(r.pubcourse),
     // Släppläget: allt som inte tydligt säger "öppen" räknas som stängt.
     release: r.release && r.release.open
       ? { open: true, by: r.release.by || null, at: r.release.at || null }
