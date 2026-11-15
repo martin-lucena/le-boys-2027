@@ -97,6 +97,7 @@ All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jso
 - Lokalt bara i webbläsaren: inloggning, aktiv flik, beat-mönstret och roulettens visningsläge.
 - **Lokalt testläge:** på `localhost` och `127.0.0.1` läses och skrivs ingenting mot Supabase, allt stannar i localStorage. Admin-fliken visar vilket läge som gäller.
 - Behörigheter sköts i appen, inte i databasen. Det är ett medvetet val: ingen i gänget kommer att skriva direkt till databasen.
+- **Keepalive:** `app/api/keepalive/route.ts` läser en enda rad ur `app_state` så att Supabase-projektet inte pausas för inaktivitet. Vercel anropar `/api/keepalive` varje dag kl. 09:00 UTC via cron-jobbet i `vercel.json`. Routen får bara läsa, aldrig skriva, och svarar bara `{ ok, at }` utan data ur databasen. Ta inte bort routen eller `vercel.json` före resan. `vercel.json` kan inte innehålla kommentarer, så förklaringen står här och i routen.
 
 ## Bara admins kan
 
