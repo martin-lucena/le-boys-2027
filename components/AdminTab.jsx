@@ -1,12 +1,13 @@
 // ADMIN-FLIKEN.
-// Vad: Reseledningens verktyg. Lås upp hemsidan för alla (med lösenord), avslöja eller dölj
+// Vad: Reseledningens verktyg. Lås upp hemsidan för alla (med lösenord) och ange resmålets stad,
+// som då avslöjas för alla. Avslöja eller dölj
 // lagkaptensresultat, godkänn böter, dela ut och
 // bedöm uppdrag, återställ agendan och Pub Golf-banan till standard, se appens status och nollställ all data.
 // Var: under Mer-menyn, BARA för Martin och Malte. Kontrollen görs i components/Shell.jsx.
 // Används av: components/Shell.jsx.
 
 import { useRef, useState } from 'react';
-import { Trash2, Eye, EyeOff, RotateCcw, Lock, LockOpen } from 'lucide-react';
+import { Trash2, Eye, EyeOff, RotateCcw, Lock, LockOpen, Pencil } from 'lucide-react';
 import { RELEASE_MODE, RELEASE_PASSWORD } from '../lib/config';
 import { BOYS, NIGHTS, isAdmin } from '../lib/constants';
 import { cx, animate, dayTime } from '../utils/helpers';
@@ -42,16 +43,35 @@ export function AdminTab({ data, mut, sync, user }) {
   const [pw, setPw] = useState('');
   const [pwMsg, setPwMsg] = useState('');
   const releaseRef = useRef(null);
+  // Resmålet: city = staden som admin skriver in vid upplåsningen. Den ligger bara här i rutan
+  // (i telefonens minne) tills upplåsningen bekräftas med rätt lösenord. Först då sparas den i den
+  // delade datan (data.destination), så att ingen kan läsa resmålet i förväg.
+  // cityMsg = felmeddelandet om staden saknas.
+  const [city, setCity] = useState('');
+  const [cityMsg, setCityMsg] = useState('');
+  // Rätta resmålet i efterhand (när sidan är upplåst): editCity = visas fältet?
+  // newCity = det man har skrivit i fältet.
+  const [editCity, setEditCity] = useState(false);
+  const [newCity, setNewCity] = useState('');
 
-  // Körs när man trycker Lås upp för alla eller Lås igen: visar lösenordsfältet.
-  const startRelease = () => { Sound.tap(); setAskPw(true); setPw(''); setPwMsg(''); };
-  // Körs när man trycker Avbryt: gömmer lösenordsfältet utan att ändra något.
-  const cancelRelease = () => { Sound.tap(); setAskPw(false); setPw(''); setPwMsg(''); };
+  // Körs när man trycker Lås upp för alla eller Lås igen: visar lösenordsfältet (och vid
+  // upplåsning även fältet för resmålets stad, förifyllt om en stad redan är sparad).
+  const startRelease = () => { Sound.tap(); setAskPw(true); setPw(''); setPwMsg(''); setCity(data.destination.city); setCityMsg(''); setEditCity(false); };
+  // Körs när man trycker Avbryt: gömmer fälten utan att ändra något.
+  const cancelRelease = () => { Sound.tap(); setAskPw(false); setPw(''); setPwMsg(''); setCity(''); setCityMsg(''); };
   // Körs när man trycker Bekräfta. Samma lösenord krävs för att låsa upp och för att låsa igen.
   const confirmRelease = (e) => {
     e.preventDefault();
     // ADMIN-KONTROLL: bara Martin och Malte får ändra släppläget (kollas igen här, innan något sparas).
     if (!isAdmin(user)) return;
+    // Vid upplåsning måste resmålets stad vara ifylld. Saknas den sparas ingenting.
+    const dest = city.trim();
+    if (!release.open && !dest) {
+      Sound.error();
+      setCityMsg('Fyll i resmålets stad, ingenting har ändrats');
+      return;
+    }
+    setCityMsg('');
     // Fel lösenord: felljud, rutan skakar och ingenting sparas. Jämförelsen är skiftlägeskänslig.
     if (pw !== RELEASE_PASSWORD) {
       Sound.error();
@@ -64,14 +84,38 @@ export function AdminTab({ data, mut, sync, user }) {
       return;
     }
     // Rätt lösenord: växla läget. Vid upplåsning sparas vem som gjorde det och när.
-    const next = release.open ? { open: false, by: null, at: null } : { open: true, by: user, at: Date.now() };
-    // SPARAR TILL SUPABASE: data.release. Alla som har väntsidan uppe får det nya läget direkt
-    // via synken. Blir sidan öppen visas avslöjandeskärmen hos dem (se app/LeBoysApp.jsx).
-    mut((d) => { d.release = next; });
+    const opening = !release.open;
+    const next = opening ? { open: true, by: user, at: Date.now() } : { open: false, by: null, at: null };
+    // SPARAR TILL SUPABASE: data.release, och vid upplåsning även data.destination (resmålets stad).
+    // Alla får det nya läget direkt via synken. När staden är satt visas avslöjandet hos var och en
+    // (se app/LeBoysApp.jsx och components/Reveal.jsx). Vid Lås igen ligger staden kvar orörd.
+    // Bara staden ändras: listan över dem som redan har sett avslöjandet (seen) ligger kvar.
+    mut((d) => {
+      if (opening) d.destination.city = dest;
+      d.release = next;
+    });
     if (next.open) { Sound.fanfare(); Confetti.burst(200); } else Sound.tap();
     setAskPw(false);
     setPw('');
     setPwMsg('');
+    setCity('');
+  };
+  // Körs när man trycker Ändra resmål (eller Ange resmål): visar fältet med den sparade staden.
+  const startEditCity = () => { Sound.tap(); setEditCity(true); setNewCity(data.destination.city); };
+  // Körs när man trycker Spara i det fältet: rättar staden i efterhand. Går bara när sidan är upplåst.
+  const saveCity = (e) => {
+    e.preventDefault();
+    // ADMIN-KONTROLL en gång till, innan något sparas.
+    if (!isAdmin(user) || !release.open) return;
+    const dest = newCity.trim();
+    if (!dest) return;
+    // SPARAR TILL SUPABASE: data.destination.city. Poängen för rätt gissning räknas direkt om mot den
+    // nya staden. Listan seen rörs inte, så den som redan har sett avslöjandet får det inte
+    // automatiskt en gång till.
+    mut((d) => { d.destination.city = dest; });
+    Sound.pop(10);
+    setEditCity(false);
+    setNewCity('');
   };
 
   // Körs när man trycker Avslöja eller Dölj igen för en kväll.
@@ -92,11 +136,12 @@ export function AdminTab({ data, mut, sync, user }) {
     // Släppläget (release) sparas också, så att en nollställning aldrig låser eller öppnar hemsidan.
     // Pub Golf-banan (pubcourse) sparas också: den återställs bara med sin egen knapp, se resetCourse
     // nedan. Lagen och resultaten i Pub Golf (pubgolf) nollställs däremot.
+    // Resmålet (destination) sparas också: det ändras bara i rutan Släpp hemsidan.
     // SPARAR TILL SUPABASE: all delad data ersätts med tom data (freshData), utom straffläggningens
-    // topplista, agendan, Pub Golf-banan och släppläget.
-    mut((d) => { const scores = d.scores; const agenda = d.agenda; const rel = d.release; const pubcourse = d.pubcourse; Object.assign(d, freshData()); d.scores = scores; d.agenda = agenda; d.release = rel; d.pubcourse = pubcourse; });
+    // topplista, agendan, Pub Golf-banan, släppläget och resmålet.
+    mut((d) => { const scores = d.scores; const agenda = d.agenda; const rel = d.release; const pubcourse = d.pubcourse; const dest = d.destination; Object.assign(d, freshData()); d.scores = scores; d.agenda = agenda; d.release = rel; d.pubcourse = pubcourse; d.destination = dest; });
     Sound.error();
-    setMsg(sync === 'live' ? 'Allt utom gissningar, topplista, agenda, Pub Golf-bana och släppläge är nollställt för alla.' : 'Allt utom gissningar, topplista, agenda, Pub Golf-bana och släppläge är nollställt på den här enheten.');
+    setMsg(sync === 'live' ? 'Allt utom gissningar, topplista, agenda, Pub Golf-bana, släppläge och resmål är nollställt för alla.' : 'Allt utom gissningar, topplista, agenda, Pub Golf-bana, släppläge och resmål är nollställt på den här enheten.');
     setTimeout(() => setMsg(''), 2500);
   };
   // Körs när man trycker Återställ agendan till standard. Kräver två tryck inom tre sekunder,
@@ -158,6 +203,26 @@ export function AdminTab({ data, mut, sync, user }) {
             </button>
           ) : (
             <form onSubmit={confirmRelease} className="mt-3 flex flex-col gap-2">
+              {/* Resmålets stad fylls bara i vid upplåsning. Den sparas först när lösenordet är rätt. */}
+              {!release.open && (
+                <>
+                  <label htmlFor="release-city" className="block text-xs font-semibold text-slate-400">
+                    Resmålets stad (avslöjas för alla när du låser upp)
+                  </label>
+                  <input
+                    id="release-city"
+                    type="text"
+                    autoFocus
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={40}
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className={cx('w-full rounded-xl bg-slate-950 border px-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-400', cityMsg ? 'border-red-400' : 'border-slate-700')}
+                  />
+                </>
+              )}
               <label htmlFor="release-pw" className="block text-xs font-semibold text-slate-400">
                 {release.open ? 'Lösenord för att låsa hemsidan igen' : 'Lösenord för att låsa upp hemsidan för alla'}
               </label>
@@ -165,7 +230,8 @@ export function AdminTab({ data, mut, sync, user }) {
                 <input
                   id="release-pw"
                   type="password"
-                  autoFocus
+                  // Vid upplåsning står markören i stadsfältet ovanför, annars här.
+                  autoFocus={release.open}
                   autoComplete="off"
                   autoCapitalize="none"
                   autoCorrect="off"
@@ -179,7 +245,42 @@ export function AdminTab({ data, mut, sync, user }) {
               <button type="button" onClick={cancelRelease} className="self-start text-sm text-slate-400 hover:text-slate-100">Avbryt</button>
             </form>
           )}
-          <p role="alert" className="mt-2 min-h-5 text-sm text-red-400">{pwMsg}</p>
+          <p role="alert" className="mt-2 min-h-5 text-sm text-red-400">{cityMsg || pwMsg}</p>
+          {/* Resmålet: visas bara när sidan är upplåst. Här kan en admin rätta staden i efterhand,
+              till exempel vid ett stavfel. Inget lösenord krävs, eftersom sidan redan är öppen. */}
+          {release.open && !askPw && (
+            <div className="mt-1 rounded-xl bg-slate-950 border border-slate-700 p-3">
+              <p className="text-xs font-semibold text-slate-400">Resmål</p>
+              {!editCity ? (
+                <div className="mt-1 flex items-center gap-3">
+                  <p className="flex-1 min-w-0 font-bold truncate">{data.destination.city || 'Inte angivet'}</p>
+                  <button type="button" onClick={startEditCity} className={cx(PRESS, 'flex items-center gap-1.5 rounded-xl border border-slate-700 text-slate-300 hover:border-amber-400 px-3 py-2 text-xs font-bold shrink-0')}>
+                    <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> {data.destination.city ? 'Ändra resmål' : 'Ange resmål'}
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={saveCity} className="mt-2 flex flex-col gap-2">
+                  <label htmlFor="edit-city" className="sr-only">Resmålets stad</label>
+                  <div className="flex gap-2">
+                    <input
+                      id="edit-city"
+                      type="text"
+                      autoFocus
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={40}
+                      value={newCity}
+                      onChange={(e) => setNewCity(e.target.value)}
+                      className="flex-1 min-w-0 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-400"
+                    />
+                    <button type="submit" disabled={!newCity.trim()} className={cx(PRESS, 'rounded-xl font-bold px-4 shrink-0', newCity.trim() ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-400 cursor-not-allowed')}>Spara</button>
+                  </div>
+                  <button type="button" onClick={() => { Sound.tap(); setEditCity(false); }} className="self-start text-sm text-slate-400 hover:text-slate-100">Avbryt</button>
+                </form>
+              )}
+            </div>
+          )}
         </Card>
       </div>
 
@@ -252,7 +353,7 @@ export function AdminTab({ data, mut, sync, user }) {
           </span>
         </div>
         <p className="text-sm text-slate-400 mt-4">
-          Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf (lag och resultat), låttext och roulette. Gissningarna, straffläggningens topplista, agendan och Pub Golf-banan ligger kvar, och hemsidan förblir låst eller öppen som den är. Går inte att ångra.
+          Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf (lag och resultat), låttext och roulette. Gissningarna, straffläggningens topplista, agendan, Pub Golf-banan och resmålet ligger kvar, och hemsidan förblir låst eller öppen som den är. Går inte att ångra.
         </p>
         <button type="button" onClick={wipe} className={cx(PRESS, 'mt-3 flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-sm font-bold', armed ? 'border-red-400 text-red-400 bg-red-400/10' : 'border-slate-700 text-slate-300 hover:border-red-400 hover:text-red-400')}>
           <Trash2 className="w-4 h-4" aria-hidden="true" /> {armed ? 'Tryck igen för att radera allt' : 'Nollställ all data'}

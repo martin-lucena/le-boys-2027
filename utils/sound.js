@@ -1,6 +1,6 @@
 // LJUD.
 // Vad: alla ljud i appen. De skapas direkt i webbläsaren med toner och brus, det finns inga ljudfiler.
-// Var: hörs vid tryck, röstning, mål, vinst och i beat-maskinen. Ljudknappen i sidhuvudet sätter Sound.muted.
+// Var: hörs vid tryck, röstning, mål, vinst, i avslöjandet av resmålet och i beat-maskinen. Ljudknappen i sidhuvudet sätter Sound.muted.
 // Används av: components/ui.jsx och de flesta komponenterna (inte Bötesrummet, som ska vara tyst).
 
 /* ---------- Ljud (Web Audio API, inga ljudfiler) ---------- */
@@ -85,6 +85,27 @@ export const Sound = {
     [659.25, 783.99].forEach((f) => this.tone(f, t + 0.4, 0.7, 'triangle', 0.08));
     this.burst(t + 0.4, 0.5, 0.07, 'highpass', 6000);
   },
+  // Trumvirvel till avslöjandet av resmålet: många täta virvelslag som växer i styrka under
+  // dur sekunder (3 om inget anges) och slutar med en smäll. Alla slag schemaläggs på en gång.
+  drumroll(dur) {
+    const c = this.ac();
+    if (!c) return;
+    const d = dur || 3;
+    const t = c.currentTime + 0.02;
+    const step = 0.055; // tiden mellan två slag
+    for (let i = 0; i * step < d; i += 1) {
+      const x = i * step;
+      // Volymen växer från svag till stark. Vartannat slag är lite svagare, som två trumpinnar.
+      const vol = (0.05 + 0.3 * (x / d)) * (i % 2 ? 0.75 : 1);
+      this.burst(t + x, 0.05, vol, 'highpass', 1800);
+      this.tone(200, t + x, 0.04, 'triangle', vol * 0.35, 150);
+    }
+    // Smällen på slutet: ett hårt virvelslag och en bastrumma.
+    this.burst(t + d, 0.3, 0.5, 'highpass', 1200);
+    this.tone(150, t + d, 0.3, 'sine', 0.8, 50);
+  },
+  // Klicket när en bokstav stannar på avgångstavlan i avslöjandet: mörkare och tyngre än click().
+  flap() { this.burst(0, 0.035, 0.45, 'bandpass', 1700); this.tone(300, 0, 0.03, 'square', 0.07); },
   // Trummorna i beat-maskinen. t = exakt tidpunkt då ljudet ska spelas.
   kick(t) { this.tone(150, t, 0.26, 'sine', 0.9, 42); },
   snare(t) { this.burst(t, 0.16, 0.42, 'highpass', 1400); this.tone(190, t, 0.09, 'triangle', 0.22, 140); },

@@ -56,6 +56,13 @@ export const freshData = () => ({
   // release: är hemsidan upplåst för alla? open = ja eller nej, by = vilken admin som låste upp,
   // at = när (tidpunkt i millisekunder). Ändras bara från Admin-fliken, med lösenord.
   release: { open: false, by: null, at: null },
+  // destination: resmålet, { city, seen }. city är tom text tills en admin låser upp hemsidan och
+  // fyller i staden. Den sparas först vid upplåsningen, så att ingen kan läsa resmålet i databasen
+  // i förväg. När city är ifylld visas avslöjandet (components/Reveal.jsx) och rätt gissning ger poäng.
+  // seen = namnen på dem som har sett avslöjandet och tryckt Gå in. Ligger i databasen (inte i
+  // telefonens minne), så att avslöjandet bara visas automatiskt en gång per person, även på en
+  // ny telefon eller efter att webbläsarens historik har rensats.
+  destination: { city: '', seen: [] },
 });
 // Läser ett sparat värde ur webbläsarens minne. Ger null om inget finns eller om det inte går att läsa.
 export function readJSON(key) {
@@ -89,6 +96,12 @@ export function normalizeData(r) {
     release: r.release && r.release.open
       ? { open: true, by: r.release.by || null, at: r.release.at || null }
       : { open: false, by: null, at: null },
+    // Resmålet: allt som inte är en text räknas som "inte satt än". I listan över dem som har sett
+    // avslöjandet behålls bara namn som finns i BOYS.
+    destination: {
+      city: r.destination && typeof r.destination.city === 'string' ? r.destination.city : '',
+      seen: r.destination && Array.isArray(r.destination.seen) ? r.destination.seen.filter((n) => BOYS.includes(n)) : [],
+    },
     fines: Array.isArray(r.fines) ? r.fines.filter((x) => x && BOYS.includes(x.to) && BOYS.includes(x.from)) : [],
     quotes: Array.isArray(r.quotes) ? r.quotes.filter((x) => x && BOYS.includes(x.who)).map((x) => ({ ...x, laughs: Array.isArray(x.laughs) ? x.laughs : [] })) : [],
     pubgolf: {

@@ -1,6 +1,7 @@
 // ROTEN I APPEN.
-// Vad: bestämmer vilken vy som visas: inloggningen, deltagarnas väntsida, avslöjandeskärmen
-// (när hemsidan just har släppts) eller hela appen.
+// Vad: bestämmer vilken vy som visas: inloggningen, deltagarnas väntsida eller hela appen, och
+// lägger avslöjandet av resmålet ovanpå appen första gången en person är inne efter att resmålet
+// har satts.
 // Var: det här är det första som laddas. app/page.tsx visar den här komponenten på startsidan.
 // Använder: hooks/useSharedData.js och hooks/useIntel.js (all data), components/Login.jsx,
 // components/Classified.jsx, components/Reveal.jsx och components/Shell.jsx (vyerna).
@@ -30,9 +31,8 @@ export default function LeBoysApp() {
   const [ready, setReady] = useState(false);
   // user = namnet på den som är inloggad, eller null om ingen är det.
   const [user, setUser] = useState(null);
-  // waited = namnet på den deltagare som har haft väntsidan uppe sedan sidan laddades, annars null.
-  // Det är så appen vet vem som ska få avslöjandeskärmen när hemsidan släpps.
-  const [waited, setWaited] = useState(null);
+  // replay = sant när man har tryckt "Se avslöjandet igen" i Agenda-fliken.
+  const [replay, setReplay] = useState(false);
 
   // Sessionen läses först i webbläsaren, så att sidan även fungerar med serverrendering (Next.js).
   // Körs en gång, direkt när sidan har laddats i webbläsaren: läser sparad inloggning från localStorage
@@ -48,7 +48,7 @@ export default function LeBoysApp() {
   const set = (u) => {
     writeJSON(SKEY, { ...(readJSON(SKEY) || {}), user: u });
     setUser(u);
-    setWaited(null);
+    setReplay(false);
     window.scrollTo(0, 0);
   };
 
@@ -56,23 +56,45 @@ export default function LeBoysApp() {
   // upp hemsidan kommer det nya läget (data.release) via realtidssynken, och full blir sant hos
   // alla på en gång, utan att någon behöver ladda om.
   const full = !!user && hasFullAccess(user, shared.data.release);
-  // Kom ihåg att den här personen står på väntsidan. (Att ändra state direkt här, medan komponenten
-  // ritas, är tillåtet i React när det styrs av ett villkor som sedan slutar gälla. Komponenten
-  // ritas då genast om en gång med det nya värdet.)
-  if (ready && user && !full && waited !== user) setWaited(user);
-  // Avslöjandeskärmen visas om personen stod på väntsidan och nu har fått full åtkomst.
-  const reveal = full && waited === user;
+  // city = resmålets stad. Tom text tills en admin har låst upp hemsidan och fyllt i staden.
+  // seen = namnen på dem som redan har sett avslöjandet. Båda ligger i samma rad i databasen
+  // (data.destination) och kommer därför alltid samtidigt via synken.
+  const { city, seen } = shared.data.destination;
+  // synced = har vi fått svar från databasen (eller gett upp, eller kör lokalt testläge)? Innan
+  // dess visas bara kopian från telefonens minne, och den kan vara gammal: någon som redan har
+  // sett avslöjandet på en annan telefon skulle annars få se det blinka till här.
+  const synced = shared.sync !== 'connecting';
+  // Avslöjandet visas ovanpå appen om personen är inne i appen, resmålet är satt och personen
+  // antingen inte har sett det än eller har bett om att få se det igen. Räknas om varje gång datan
+  // ändras: den som har väntsidan uppe när en admin låser upp får både full åtkomst och staden via
+  // synken, och då dyker avslöjandet upp direkt, utan omladdning.
+  const showReveal = full && !!city && (replay || (synced && !seen.includes(user)));
+  // Körs när man trycker Gå in: sparar att personen har sett avslöjandet och stänger det.
+  const closeReveal = () => {
+    // SPARAR TILL SUPABASE: mitt namn läggs till i data.destination.seen, om det inte redan står
+    // där. Eftersom det ligger i databasen visas avslöjandet inte automatiskt igen, varken på en
+    // annan telefon eller efter att webbläsarens historik har rensats.
+    shared.mut((d) => { if (!d.destination.seen.includes(user)) d.destination.seen.push(user); });
+    setReplay(false);
+    window.scrollTo(0, 0);
+  };
 
   let view = null;
   if (ready) {
     // Här väljs vyn: ingen inloggad -> Login. Inloggad utan full åtkomst -> väntsidan (Classified).
-    // Stod man på väntsidan när hemsidan släpptes -> avslöjandeskärmen (Reveal). Knappen Gå in
-    // nollställer waited, och då visas hela appen (Shell). Martin och Malte har alltid full
-    // åtkomst och kommer direkt till Shell.
+    // Annars hela appen (Shell), och ovanpå den avslöjandet (Reveal) när det ska visas. Martin och
+    // Malte har alltid full åtkomst och kommer direkt till Shell.
     if (!user) view = <Login onLogin={set} />;
     else if (!full) view = <Classified user={user} intel={intel} shared={shared} onLogout={() => set(null)} />;
-    else if (reveal) view = <Reveal user={user} onEnter={() => { setWaited(null); window.scrollTo(0, 0); }} />;
-    else view = <Shell key={user} user={user} shared={shared} intel={intel} onLogout={() => set(null)} />;
+    else {
+      view = (
+        <>
+          {/* onReplay körs av knappen "Se avslöjandet igen" i Agenda-fliken. */}
+          <Shell key={user} user={user} shared={shared} intel={intel} onLogout={() => set(null)} onReplay={() => setReplay(true)} />
+          {showReveal && <Reveal user={user} city={city} guesses={intel.guesses} onEnter={closeReveal} />}
+        </>
+      );
+    }
   }
 
   return (
