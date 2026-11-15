@@ -7,9 +7,10 @@
 // realtid. DAYS i lib/constants.js är bara startvärdet och ger dagarnas namn. Se lib/agenda.js.
 // Admins (Martin och Malte) kan redigera agendan här med knappen Redigera agenda:
 // ändra, ta bort och lägga till programpunkter.
+// När resmålet är satt finns också knappen "Se avslöjandet igen" under nedräkningen.
 
 import { useMemo, useState } from 'react';
-import { Check, ChevronDown, MapPin, Shirt, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, MapPin, Shirt, Pencil, Plus, Trash2, Plane } from 'lucide-react';
 import { BOYS, DAYS, isAdmin } from '../lib/constants';
 import { TIME_RE, sortAgenda, tripStartTime } from '../lib/agenda';
 import { cx, uid, itemDate, dayTime } from '../utils/helpers';
@@ -222,8 +223,9 @@ function AgendaEditor({ form, dayLabel, links, onSave, onCancel }) {
 // Agenda: hela fliken.
 // Props: data och mut = delad data och funktionen som ändrar den, user = den inloggade,
 // goTab = funktion som byter flik, links = flikarna som en programpunkt kan länka till
-// ({ id, label }, skickas från components/Shell.jsx).
-export function Agenda({ data, mut, user, goTab, links }) {
+// ({ id, label }, skickas från components/Shell.jsx),
+// onReplay = visar avslöjandet av resmålet igen (kommer från app/LeBoysApp.jsx via Shell).
+export function Agenda({ data, mut, user, goTab, links, onReplay }) {
   // now = tiden just nu. Uppdateras varje sekund, så nedräkningen och Nu-markeringen följer klockan.
   const now = useNow();
   // all = alla punkter från alla dagar i en lång lista, med exakt starttid för var och en.
@@ -340,6 +342,13 @@ export function Agenda({ data, mut, user, goTab, links }) {
   return (
     <div className="flex flex-col gap-4">
       <Countdown {...cd} />
+      {/* Visas först när resmålet är satt (data.destination.city). Öppnar helskärmen i
+          components/Reveal.jsx en gång till, med nedräkning, flygplan och avgångstavla. */}
+      {data.destination.city && (
+        <button type="button" onClick={() => { Sound.tap(); onReplay(); }} className={cx(PRESS, 'self-start flex items-center gap-2 rounded-xl border border-slate-700 text-slate-100 hover:border-amber-400 px-3 py-2 text-xs font-bold')}>
+          <Plane className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" /> Se avslöjandet igen
+        </button>
+      )}
       <SectionTitle
         kicker="Agenda (Tors–Sön)"
         title={DAYS[day].label}

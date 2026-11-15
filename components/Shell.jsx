@@ -44,8 +44,9 @@ const TABS = [
 ];
 
 // Props: user = den inloggade, onLogout = körs när man trycker på logga ut-knappen,
-// shared = delad data, mut och sync (från useSharedData), intel = gissningarna (från useIntel).
-export function Shell({ user, onLogout, shared, intel }) {
+// shared = delad data, mut och sync (från useSharedData), intel = gissningarna (från useIntel),
+// onReplay = visar avslöjandet av resmålet igen (skickas vidare till Agenda-fliken).
+export function Shell({ user, onLogout, shared, intel, onReplay }) {
   const { data, mut, sync } = shared;
 
   // Admin-fliken finns bara för konton med admin: true.
@@ -122,7 +123,7 @@ export function Shell({ user, onLogout, shared, intel }) {
 
       {/* Här visas den valda fliken. Bara den komponent vars villkor är sant ritas. */}
       <main className="max-w-xl mx-auto px-4 pt-5 pb-32">
-        {tab === 'agenda' && <Agenda {...props} links={agendaLinks} />}
+        {tab === 'agenda' && <Agenda {...props} links={agendaLinks} onReplay={onReplay} />}
         {tab === 'agenda' && (
           <div className="mt-6 flex flex-col gap-4">
             <Penalty data={data} mut={mut} user={user} />
