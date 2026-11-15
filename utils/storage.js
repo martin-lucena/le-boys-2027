@@ -63,6 +63,9 @@ export const freshData = () => ({
   // telefonens minne), så att avslöjandet bara visas automatiskt en gång per person, även på en
   // ny telefon eller efter att webbläsarens historik har rensats.
   destination: { city: '', seen: [] },
+  // trolled: vilka som har öppnat skämtsidan "Strippklubbar" och när första gången var
+  // (namn -> tidpunkt i millisekunder). Den som står här har fått sitt minuspoäng i totaltabellen.
+  trolled: {},
 });
 // Läser ett sparat värde ur webbläsarens minne. Ger null om inget finns eller om det inte går att läsa.
 export function readJSON(key) {
@@ -102,6 +105,10 @@ export function normalizeData(r) {
       city: r.destination && typeof r.destination.city === 'string' ? r.destination.city : '',
       seen: r.destination && Array.isArray(r.destination.seen) ? r.destination.seen.filter((n) => BOYS.includes(n)) : [],
     },
+    // Skämtsidan: behåll bara rader för namn som finns i BOYS och som har en tid sparad.
+    trolled: Object.fromEntries(
+      Object.entries(r.trolled && typeof r.trolled === 'object' ? r.trolled : {}).filter(([n, t]) => BOYS.includes(n) && t),
+    ),
     fines: Array.isArray(r.fines) ? r.fines.filter((x) => x && BOYS.includes(x.to) && BOYS.includes(x.from)) : [],
     quotes: Array.isArray(r.quotes) ? r.quotes.filter((x) => x && BOYS.includes(x.who)).map((x) => ({ ...x, laughs: Array.isArray(x.laughs) ? x.laughs : [] })) : [],
     pubgolf: {

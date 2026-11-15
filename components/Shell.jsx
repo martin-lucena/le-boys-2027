@@ -6,7 +6,7 @@
 // Ny sida? Lägg till den i TABS nedan och visa komponenten i <main> längre ner.
 
 import { useEffect, useState } from 'react';
-import { Calendar, ShieldCheck, Music, Dices, LogOut, Volume2, VolumeX, X, Settings, Target, Medal, Gavel, Quote, LayoutGrid, Flag } from 'lucide-react';
+import { Calendar, ShieldCheck, Music, Dices, LogOut, Volume2, VolumeX, X, Settings, Target, Medal, Gavel, Quote, LayoutGrid, Flag, Wine } from 'lucide-react';
 import { isAdmin } from '../lib/constants';
 import { cx } from '../utils/helpers';
 import { PRESS, GLOW_GOLD, DISPLAY } from '../utils/styles';
@@ -25,6 +25,7 @@ import { FinesTab } from './Fines';
 import { QuotesTab } from './Quotes';
 import { StandingsTab } from './Standings';
 import { AdminTab } from './AdminTab';
+import { StripTab } from './Strip';
 
 /* ---------- Appskal med flikar ---------- */
 // Flikar. main: true ligger i flikraden längst ner, övriga nås via Mer-menyn.
@@ -40,6 +41,8 @@ const TABS = [
   { id: 'citat', label: 'Citat', long: 'Kvällens citat', Icon: Quote, hint: 'Spara det som sades' },
   { id: 'studio', label: 'Låtstudion', long: 'Låtstudion', Icon: Music, hint: 'Resans låt och beat' },
   { id: 'roulette', label: 'Lag-Roulette', long: 'Lag-Roulette', Icon: Dices, hint: 'Dra lagen' },
+  // Ett skämt: sidan visar en bild i helskärm och kostar ett minuspoäng första gången. Se Strip.jsx.
+  { id: 'strip', label: 'Strippklubbar', long: 'Strippklubbar', Icon: Wine, hint: 'Kvällens bästa ställen' },
   { id: 'admin', label: 'Admin', long: 'Admin', Icon: Settings, hint: 'Reseledningens verktyg', adminOnly: true },
 ];
 
@@ -139,6 +142,8 @@ export function Shell({ user, onLogout, shared, intel, onReplay }) {
         {tab === 'citat' && <QuotesTab data={data} mut={mut} user={user} />}
         {tab === 'studio' && <Studio {...props} />}
         {tab === 'roulette' && <Roulette {...props} />}
+        {/* Skämtsidan. Den ritar en helskärm ovanpå allt och går tillbaka till Agenda med goTab. */}
+        {tab === 'strip' && <StripTab {...props} />}
         {/* ADMIN-KONTROLL: Admin-fliken ritas bara för Martin och Malte, även om någon annan skulle lyckas välja den. */}
         {tab === 'admin' && isAdmin(user) && <AdminTab data={data} mut={mut} sync={sync} user={user} />}
       </main>

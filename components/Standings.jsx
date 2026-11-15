@@ -57,9 +57,10 @@ export function StandingsTab({ data, user, guesses }) {
                   <ChevronDown aria-hidden="true" className={cx('w-4 h-4 text-slate-400 transition-transform shrink-0', isOpen && 'rotate-180')} />
                 </button>
                 {isOpen && (
-                  // Sex poster: tre per rad på en smal telefon, alla sex på en rad på bredare skärmar.
-                  <Pop as="dl" className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 px-3 pb-3 text-center">
-                    {[['Kapten', r.kapten], ['Uppdrag', r.uppdrag], ['Straffar', r.straffar], ['Golf', r.golf], ['Gissning', r.gissning], ['Böter', r.boter]].map(([l, v]) => (
+                  // Sju poster: tre per rad på en smal telefon och fyra per rad på bredare skärmar, så
+                  // att även det långa ordet "Strippklubb" får plats.
+                  <Pop as="dl" className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 px-3 pb-3 text-center">
+                    {[['Kapten', r.kapten], ['Uppdrag', r.uppdrag], ['Straffar', r.straffar], ['Golf', r.golf], ['Gissning', r.gissning], ['Böter', r.boter], ['Strippklubb', r.troll]].map(([l, v]) => (
                       <div key={l} className="rounded-lg bg-slate-900 border border-slate-700 py-1.5">
                         <dt className="text-[9px] sm:text-[10px] uppercase tracking-wide text-slate-400">{l}</dt>
                         <dd className={cx('font-black tabular-nums', v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : 'text-slate-500')}>{signed(v)}</dd>
@@ -91,6 +92,8 @@ export function StandingsTab({ data, user, guesses }) {
             <li className="flex justify-between gap-3"><span>Pub Golf: plats 1, 2, 3 och 4, till varje spelare i laget när rundan är klar</span><span className="font-bold tabular-nums text-emerald-400 shrink-0">+{POINTS.pubgolf.join(' / +')}</span></li>
             <li className="flex justify-between gap-3"><span>Rätt gissad stad i Vart ska vi?, räknas när resmålet är avslöjat</span><span className="font-bold tabular-nums text-emerald-400 shrink-0">+{POINTS.guess}</span></li>
             <li className="flex justify-between gap-3"><span>Godkänd bot i Bötesrummet</span><span className="font-bold tabular-nums text-red-400">{POINTS.fine}</span></li>
+            {/* Skämtsidan i Mer-menyn: minuspoäng en gång per person, första gången sidan öppnas. */}
+            <li className="flex justify-between gap-3"><span>Öppnat sidan Strippklubbar (en gång per person)</span><span className="font-bold tabular-nums text-red-400 shrink-0">{POINTS.troll}</span></li>
           </ul>
         )}
       </Card>
