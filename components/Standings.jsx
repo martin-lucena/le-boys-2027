@@ -29,7 +29,7 @@ export function StandingsTab({ data, user }) {
   const hiddenNights = NIGHTS.filter((n) => !data.revealed[n.id]).length;
   const signed = (v) => (v > 0 ? `+${v}` : `${v}`);
   // Hur långt Pub Golf-rundan har kommit. Används i texten under tabellen.
-  const golf = pubGolfProgress(data.pubgolf);
+  const golf = pubGolfProgress(data.pubgolf, data.pubcourse);
 
   return (
     <div className="flex flex-col gap-4">

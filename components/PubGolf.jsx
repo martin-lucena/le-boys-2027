@@ -14,49 +14,62 @@ import { freshPubGolf } from '../utils/storage';
 import { Sound } from '../utils/sound';
 import { Confetti } from '../utils/confetti';
 import { Avatar, Card, SectionTitle, FoldHeader } from './ui';
-import { PUB_TEAM_SIZE, PUB_HOLES, pubTeams, holeNet, relLabel, golfName, teamStats, pubGolfPoints, pubGolfTestData } from '../lib/pubgolf';
+import { PUB_TEAM_SIZE, pubTeams, holeNet, relLabel, golfName, teamStats, pubGolfPoints, pubGolfTestData, coursePar, isDefaultCourse } from '../lib/pubgolf';
 
-// Props: data = delad data (här används data.pubgolf), mut = funktionen som ändrar data,
-// user = den inloggade, goTab = byter flik (till rouletten).
+// Props: data = delad data (här används data.pubgolf och data.pubcourse), mut = funktionen som
+// ändrar data, user = den inloggade, goTab = byter flik (till rouletten).
 export function PubGolfTab({ data, mut, user, goTab }) {
   const pg = data.pubgolf;
+  // holes = banan från den delade datan: en lista med hål i spelordning. Varje hål har ett fast id,
+  // och resultaten i pg.scores sparas per lag och hål-id (pg.scores[lag][hål-id]).
+  // Banan har alltid minst ett hål (se normalizeCourse i lib/pubgolf.js).
+  const holes = data.pubcourse;
   const teams = pubTeams(pg.draw);
   const drawn = pg.draw.length;
   const ready = drawn >= BOYS.length;
   // myTeam = numret på mitt lag (lag 0 om jag inte är lottad än).
   const myTeam = Math.max(0, teams.findIndex((t) => t.members.includes(user)));
-  // Första hålet som ett lag inte har registrerat än.
-  const firstOpen = (idx) => { const i = PUB_HOLES.findIndex((_, h) => !(pg.scores[idx] && pg.scores[idx][h])); return i < 0 ? 0 : i; };
+  // Resultatet som ett lag har registrerat på ett hål, eller undefined om hålet inte är spelat.
+  const scoreOf = (idx, holeId) => pg.scores[idx] && pg.scores[idx][holeId];
+  // Id för första hålet som ett lag inte har registrerat än (banans första hål om alla är klara).
+  const firstOpen = (idx) => (holes.find((x) => !scoreOf(idx, x.id)) || holes[0]).id;
 
-  // Formuläret "Registrera hål": team och hole = valt lag och hål, sips = klunkar,
+  // Formuläret "Registrera hål": team = valt lag, holeId = id för valt hål, sips = klunkar,
   // side = sidouppdraget klarat, penalty = antal straff.
   // course och rules = om rutorna Banan och Regler är utfällda. flash = kvittot som visas efter sparning.
   const [team, setTeam] = useState(myTeam);
-  const [hole, setHole] = useState(() => firstOpen(myTeam));
-  const [sips, setSips] = useState(PUB_HOLES[0].par);
+  const [holeId, setHoleId] = useState(() => firstOpen(myTeam));
+  const [sips, setSips] = useState(holes[0].par);
   const [side, setSide] = useState(false);
   const [penalty, setPenalty] = useState(0);
   const [course, setCourse] = useState(true);
   const [rules, setRules] = useState(false);
   const [flash, setFlash] = useState('');
 
+  // hole = det valda hålets plats på banan (0 = hål 1), h = själva hålet. Valet sparas som id och
+  // inte som nummer, så att samma hål förblir valt om en admin flyttar det medan formuläret är
+  // öppet. Har hålet tagits bort väljs banans första hål.
+  const hole = Math.max(0, holes.findIndex((x) => x.id === holeId));
+  const h = holes[hole];
+
   // Fyll i formuläret från sparat resultat när man byter lag eller hål, annars från hålets par.
   useEffect(() => {
-    const saved = pg.scores[team] && pg.scores[team][hole];
-    setSips(saved ? saved.sips : PUB_HOLES[hole].par);
+    const saved = scoreOf(team, h.id);
+    setSips(saved ? saved.sips : h.par);
     setSide(saved ? !!saved.side : false);
     setPenalty(saved ? saved.penalty || 0 : 0);
-  }, [team, hole]);
+  }, [team, h.id]);
 
   // stats = varje lag med sina siffror. board = samma lag sorterade för ställningen: lag som har
   // spelat först, sedan bäst resultat mot par, flest spelade hål, flest sidouppdrag.
-  const stats = teams.map((t) => ({ ...t, ...teamStats(pg.scores, t.idx) }));
+  const stats = teams.map((t) => ({ ...t, ...teamStats(pg.scores, t.idx, holes) }));
   const board = stats.slice().sort((a, b) => (b.played > 0) - (a.played > 0) || a.rel - b.rel || b.played - a.played || b.sides - a.sides || a.idx - b.idx);
   const anyPlayed = stats.some((t) => t.played > 0);
   // Poäng till totaltabellen per namn. Tom tills hela rundan är klar.
-  const golfPoints = pubGolfPoints(pg);
-  const saved = pg.scores[team] && pg.scores[team][hole];
-  const h = PUB_HOLES[hole];
+  const golfPoints = pubGolfPoints(pg, holes);
+  const saved = scoreOf(team, h.id);
+  // Banans par: summan av alla håls par.
+  const totalPar = coursePar(holes);
   // Hålets slag enligt det som står i formuläret: klunkar plus straff, minus ett om sidouppdraget klarades.
   const net = sips + penalty - (side ? 1 : 0);
 
@@ -64,22 +77,29 @@ export function PubGolfTab({ data, mut, user, goTab }) {
   const save = (e) => {
     e.preventDefault();
     const entry = { sips, side, penalty, by: user, ts: Date.now() };
-    // SPARAR TILL SUPABASE: data.pubgolf.scores, resultatet för valt lag och hål. Skriver över om hålet
-    // redan var registrerat.
-    mut((d) => { if (!d.pubgolf.scores[team]) d.pubgolf.scores[team] = {}; d.pubgolf.scores[team][hole] = entry; });
+    const id = h.id;
+    // SPARAR TILL SUPABASE: data.pubgolf.scores, resultatet för valt lag och hål (sparas under hålets
+    // id). Skriver över om hålet redan var registrerat. Har en admin hunnit ta bort hålet från
+    // banan under tiden sparas ingenting.
+    mut((d) => {
+      if (!d.pubcourse.some((x) => x.id === id)) return;
+      if (!d.pubgolf.scores[team]) d.pubgolf.scores[team] = {};
+      d.pubgolf.scores[team][id] = entry;
+    });
     const rel = net - h.par;
     if (rel < 0) { Sound.fanfare(); Confetti.burst(160); } else Sound.pop(10);
     setFlash(`${teams[team].name}, hål ${hole + 1}: ${net} slag (${golfName(rel)}).`);
     setTimeout(() => setFlash(''), 3500);
     // Hoppa vidare till lagets nästa oregistrerade hål, om det finns något.
-    const nextOpen = PUB_HOLES.findIndex((_, i) => i !== hole && !(pg.scores[team] && pg.scores[team][i]));
-    if (nextOpen >= 0) setHole(nextOpen);
+    const nextOpen = holes.find((x) => x.id !== id && !scoreOf(team, x.id));
+    if (nextOpen) setHoleId(nextOpen.id);
   };
   // De här tre körs från adminknapparna (som bara Martin och Malte ser). Alla tre SPARAR TILL SUPABASE i data.pubgolf:
-  // clearHole tar bort resultatet för valt lag och hål, loadTest ersätter allt med testdata,
-  // clearAll tömmer både lag och resultat.
-  const clearHole = () => { Sound.tap(); mut((d) => { if (d.pubgolf.scores[team]) delete d.pubgolf.scores[team][hole]; }); };
-  const loadTest = () => { Sound.pop(8); mut((d) => { d.pubgolf = pubGolfTestData(); }); };
+  // clearHole tar bort resultatet för valt lag och hål, loadTest ersätter allt med testdata
+  // (anpassad efter banan som den ser ut just nu), clearAll tömmer både lag och resultat.
+  // Ingen av dem ändrar banan (data.pubcourse).
+  const clearHole = () => { const id = h.id; Sound.tap(); mut((d) => { if (d.pubgolf.scores[team]) delete d.pubgolf.scores[team][id]; }); };
+  const loadTest = () => { Sound.pop(8); mut((d) => { d.pubgolf = pubGolfTestData(d.pubcourse); }); };
   const clearAll = () => { Sound.tap(); mut((d) => { d.pubgolf = freshPubGolf(); }); };
   const step = 'w-11 h-11 rounded-full border border-slate-700 bg-slate-950 flex items-center justify-center text-slate-100 hover:border-amber-400 disabled:opacity-40';
 
@@ -95,7 +115,7 @@ export function PubGolfTab({ data, mut, user, goTab }) {
       <Card className={anyPlayed ? GLOW_GOLD : ''}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <h3 className={cx(DISPLAY, 'text-xl')}>Live-ställning</h3>
-          <span className="text-xs text-slate-400 tabular-nums">Banans par: {PUB_HOLES.reduce((s, x) => s + x.par, 0)}</span>
+          <span className="text-xs text-slate-400 tabular-nums">Banans par: {totalPar}</span>
         </div>
         {drawn === 0 ? (
           <div className="rounded-xl bg-slate-950 border border-dashed border-amber-400 p-4 text-center">
@@ -120,7 +140,7 @@ export function PubGolfTab({ data, mut, user, goTab }) {
                 </div>
                 <div className="text-right shrink-0">
                   <p className={cx('font-black text-2xl leading-none tabular-nums', !t.played ? 'text-slate-600' : t.rel < 0 ? 'text-emerald-400' : t.rel > 0 ? 'text-red-400' : 'text-slate-100')}>{t.played ? relLabel(t.rel) : '–'}</p>
-                  <p className="text-[11px] text-slate-400 tabular-nums mt-1">{t.strokes} slag · {t.played}/{PUB_HOLES.length} hål</p>
+                  <p className="text-[11px] text-slate-400 tabular-nums mt-1">{t.strokes} slag · {t.played}/{holes.length} hål</p>
                   {golfPoints[t.members[0]] !== undefined && <p className="text-[11px] font-bold text-amber-400 tabular-nums">+{golfPoints[t.members[0]]} p i totalen</p>}
                 </div>
               </li>
@@ -136,23 +156,23 @@ export function PubGolfTab({ data, mut, user, goTab }) {
               <thead>
                 <tr className="text-slate-400">
                   <th scope="col" className="text-left font-semibold pr-2">Hål</th>
-                  {PUB_HOLES.map((_, i) => <th key={i} scope="col" className="font-semibold w-7">{i + 1}</th>)}
+                  {holes.map((x, i) => <th key={x.id} scope="col" className="font-semibold w-7">{i + 1}</th>)}
                   <th scope="col" className="font-semibold pl-2">Tot</th>
                 </tr>
                 <tr className="text-slate-500">
                   <th scope="row" className="text-left font-normal pr-2">Par</th>
-                  {PUB_HOLES.map((x, i) => <td key={i}>{x.par}</td>)}
-                  <td className="pl-2">{PUB_HOLES.reduce((s, x) => s + x.par, 0)}</td>
+                  {holes.map((x) => <td key={x.id}>{x.par}</td>)}
+                  <td className="pl-2">{totalPar}</td>
                 </tr>
               </thead>
               <tbody>
                 {stats.map((t) => (
                   <tr key={t.name}>
                     <th scope="row" className={cx('text-left font-bold pr-2 whitespace-nowrap', t.text)}>{t.name.replace('Lag ', '')}</th>
-                    {PUB_HOLES.map((x, i) => {
-                      const s = pg.scores[t.idx] && pg.scores[t.idx][i];
+                    {holes.map((x) => {
+                      const s = scoreOf(t.idx, x.id);
                       const v = s ? holeNet(s) : null;
-                      return <td key={i} className={cx('font-bold', v === null ? 'text-slate-700' : v < x.par ? 'text-emerald-400' : v > x.par ? 'text-red-400' : 'text-slate-100')}>{v === null ? '·' : v}</td>;
+                      return <td key={x.id} className={cx('font-bold', v === null ? 'text-slate-700' : v < x.par ? 'text-emerald-400' : v > x.par ? 'text-red-400' : 'text-slate-100')}>{v === null ? '·' : v}</td>;
                     })}
                     <td className="pl-2 font-black">{t.played ? t.strokes : '·'}</td>
                   </tr>
@@ -186,7 +206,7 @@ export function PubGolfTab({ data, mut, user, goTab }) {
               <p id="pg-team" className="text-xs font-semibold text-slate-400 mb-1.5">Lag</p>
               <div role="radiogroup" aria-labelledby="pg-team" className="grid grid-cols-2 gap-2">
                 {teams.map((t) => (
-                  <button key={t.name} type="button" role="radio" aria-checked={team === t.idx} onClick={() => { Sound.tap(); setTeam(t.idx); setHole(firstOpen(t.idx)); }}
+                  <button key={t.name} type="button" role="radio" aria-checked={team === t.idx} onClick={() => { Sound.tap(); setTeam(t.idx); setHoleId(firstOpen(t.idx)); }}
                     className={cx(PRESS, 'rounded-xl border px-3 py-2 text-left', team === t.idx ? cx(t.border, 'bg-slate-800') : 'border-slate-700 bg-slate-950')}>
                     <span className={cx('block font-bold text-sm', t.text)}>{t.name}</span>
                     <span className="block text-[11px] text-slate-400 truncate">{t.members.join(' och ') || 'Inte lottat'}</span>
@@ -198,10 +218,10 @@ export function PubGolfTab({ data, mut, user, goTab }) {
             <div>
               <p id="pg-hole" className="text-xs font-semibold text-slate-400 mb-1.5">Hål</p>
               <div role="radiogroup" aria-labelledby="pg-hole" className="grid grid-cols-9 gap-1">
-                {PUB_HOLES.map((_, i) => {
-                  const done = !!(pg.scores[team] && pg.scores[team][i]);
+                {holes.map((x, i) => {
+                  const done = !!scoreOf(team, x.id);
                   return (
-                    <button key={i} type="button" role="radio" aria-checked={hole === i} aria-label={`Hål ${i + 1}${done ? ', registrerat' : ''}`} onClick={() => { Sound.tap(); setHole(i); }}
+                    <button key={x.id} type="button" role="radio" aria-checked={hole === i} aria-label={`Hål ${i + 1}${done ? ', registrerat' : ''}`} onClick={() => { Sound.tap(); setHoleId(x.id); }}
                       className={cx('h-10 rounded-lg border font-black tabular-nums transition', hole === i ? 'bg-amber-400 text-slate-950 border-amber-400' : done ? 'border-emerald-400 text-emerald-400 bg-slate-950' : 'border-slate-700 text-slate-300 bg-slate-950')}>
                       {i + 1}
                     </button>
@@ -252,11 +272,11 @@ export function PubGolfTab({ data, mut, user, goTab }) {
 
       {/* 2. Banan */}
       <Card>
-        <FoldHeader icon={<Flag className="w-5 h-5 text-emerald-400 shrink-0" aria-hidden="true" />} title="Banan" note={`${PUB_HOLES.length} hål · exempelpubar`} open={course} onToggle={() => setCourse(!course)} />
+        <FoldHeader icon={<Flag className="w-5 h-5 text-emerald-400 shrink-0" aria-hidden="true" />} title="Banan" note={`${holes.length} hål${isDefaultCourse(holes) ? ' · exempelpubar' : ''}`} open={course} onToggle={() => setCourse(!course)} />
         {course && (
           <ol className="flex flex-col gap-2 mt-3">
-            {PUB_HOLES.map((x, i) => (
-              <li key={x.pub} className="flex gap-3 rounded-xl bg-slate-950 border border-slate-700 p-3">
+            {holes.map((x, i) => (
+              <li key={x.id} className="flex gap-3 rounded-xl bg-slate-950 border border-slate-700 p-3">
                 <div className="flex flex-col items-center shrink-0 w-10">
                   <span className="w-10 h-10 rounded-full bg-emerald-400 text-slate-950 font-black text-lg flex items-center justify-center tabular-nums">{i + 1}</span>
                   <span className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Par {x.par}</span>
@@ -277,7 +297,7 @@ export function PubGolfTab({ data, mut, user, goTab }) {
         <FoldHeader icon={<Medal className="w-5 h-5 text-amber-400 shrink-0" aria-hidden="true" />} title="Regler och poäng" open={rules} onToggle={() => setRules(!rules)} />
         {rules && (
           <ul className="mt-3 flex flex-col gap-2 text-sm">
-            <li><span className="font-semibold">Som vanlig golf:</span> lägst antal slag efter nio hål vinner.</li>
+            <li><span className="font-semibold">Som vanlig golf:</span> lägst antal slag efter banans {holes.length} hål vinner.</li>
             <li><span className="font-semibold">Slag:</span> antalet klunkar som den långsammaste i laget behöver för att tömma hålets dryck.</li>
             <li><span className="font-semibold">Par:</span> målet för hålet. Under par är birdie eller eagle, över par är bogey.</li>
             <li><span className="font-semibold text-emerald-400">Sidouppdrag: −1 slag.</span> Varje pub har ett uppdrag. Klarar hela laget det dras ett slag av.</li>
