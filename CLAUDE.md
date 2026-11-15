@@ -31,12 +31,19 @@ Före resan ser admins hela appen. Deltagarna ser bara väntsidan (`components/C
 
 Hemsidan släpps för alla på ett av två sätt. `hasFullAccess(name, release)` i `lib/constants.js` ger full åtkomst om personen är admin, om `RELEASE_MODE` är `true` eller om `release.open` är `true`.
 
-- **I appen (det vanliga sättet):** rutan "Släpp hemsidan" i Admin-fliken. "Lås upp för alla" kräver lösenordet `RELEASE_PASSWORD`, som finns i `lib/config.js`. Rätt lösenord sparar den delade nyckeln `release` som `{ open: true, by, at }`. "Lås igen" kräver samma lösenord. Fel lösenord ändrar ingenting.
+- **I appen (det vanliga sättet):** rutan "Släpp hemsidan" i Admin-fliken. "Lås upp för alla" kräver lösenordet `RELEASE_PASSWORD`, som finns i `lib/config.js`. Vid upplåsning måste admin också fylla i resmålets stad. Rätt lösenord sparar den delade nyckeln `release` som `{ open: true, by, at }` och resmålet som `destination` (se "Resmålet och avslöjandet" nedan). "Lås igen" kräver samma lösenord och rör inte resmålet. Fel lösenord ändrar ingenting.
 - **I koden (reserv):** `RELEASE_MODE = true` i `lib/config.js` öppnar sidan oavsett knappen.
 
 Lösenordet får aldrig visas på skärmen, skrivas ut i svar eller skrivas in i den här filen.
 
-Deltagare som har väntsidan uppe när sidan släpps får avslöjandeskärmen (`components/Reveal.jsx`) med fanfar, konfetti och knappen "Gå in", direkt via synken och utan omladdning. Det styrs av `waited` i `app/LeBoysApp.jsx`.
+## Resmålet och avslöjandet (destination och Reveal)
+
+- **Resmålet** ligger i den delade nyckeln `destination` (`{ city }`, tom text tills det är satt). Staden skrivs in i rutan "Släpp hemsidan" och sparas först när upplåsningen bekräftas med rätt lösenord, aldrig tidigare, så att resmålet inte går att läsa i förväg. Skriv aldrig in resmålet i koden eller i den här filen. När sidan är upplåst kan en admin rätta staden med "Ändra resmål" i samma ruta (utan lösenord).
+- **Avslöjandet** (`components/Reveal.jsx`) är en helskärm som läggs ovanpå appen av `app/LeBoysApp.jsx` när personen har full åtkomst, `destination.city` är satt och personen inte har sett det. Den som har väntsidan uppe när sidan låses upp får det direkt via synken, utan omladdning. Ordningen är: nedräkning 3–2–1 med trumvirvel (`Sound.drumroll`), flygplan i canvas, staden på en avgångstavla där bokstäverna stannar en i taget med klick (`Sound.flap`), sedan fanfar, konfetti och allas gissningar med rätt stad överst och märket "Rätt!". "Gå in" stänger.
+- Att en person har sett avslöjandet sparas i localStorage (`REVEAL_KEY` i `utils/storage.js`, `{ namn: true }`), så det visas bara automatiskt en gång per person och telefon. Det visas inte på nytt om staden rättas. "Se avslöjandet igen" under nedräkningen i Agenda-fliken visar det igen.
+- Webbläsaren (särskilt iPhone) spelar inget ljud förrän man har tryckt på skärmen. Är ljudet spärrat när avslöjandet öppnas visas först knappen "Avslöja resmålet", annars börjar nedräkningen direkt.
+- Helskärmen använder `h-dvh` och `env(safe-area-inset-*)`. Med `prefers-reduced-motion` visas resultatet direkt, utan nedräkning, flygplan och rullande bokstäver.
+- Städer jämförs med `sameCity` i `lib/scoring.js`: utan hänsyn till stora och små bokstäver, mellanslag och accenter (även å, ä och ö räknas som a och o). Samma funktion används för märket "Rätt!" och för poängen.
 
 ## Struktur
 
@@ -46,7 +53,7 @@ components/
   Shell.jsx              Sidhuvud, flikrad och Mer-meny
   Login.jsx              Inloggning (namn + lösenord, skakar vid fel)
   Classified.jsx         Deltagarnas väntsida tills hemsidan släpps
-  Reveal.jsx             Avslöjandeskärmen "Hemsidan är öppen!" när sidan släpps
+  Reveal.jsx             Avslöjandet av resmålet: nedräkning, flygplan, avgångstavla och gissningarna
   Agenda.jsx             Tidslinje tors–sön, hype per punkt, incheckning, admins redigering av agendan
   Captain.jsx            Lagkapten: hemlig röstning, avslöjas per kväll
   Missions.jsx           Hemliga uppdrag: eget uppdrag, tavla, flik, admin
@@ -70,7 +77,7 @@ lib/
   agenda.js              Agendan som delad data: startvärde (freshAgenda), sortering, kontroll
   pubgolf.js             Pub Golf-lag, bana (PUB_HOLES) och poängräkning
   missions.js            Aktiv uppdragsdag och godkända uppdrag
-  scoring.js             computeTotals för totaltabellen
+  scoring.js             computeTotals för totaltabellen och sameCity (jämför städer)
   supabase.js            Supabase-klient och SHARED_KEYS
 utils/
   storage.js             Datamodell (freshData, normalizeData) och localStorage
@@ -90,11 +97,11 @@ utils/
 
 All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jsonb), version, updated_at }`. Synkas via `hooks/useSharedData.js`.
 
-- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`.
+- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`, `destination`.
 - Ändra alltid data med `mut((d) => { ... })`. Den uppdaterar direkt lokalt och skriver sedan till databasen med versionskontroll: krockar två skrivningar läses raden om och ändringen körs igen. Funktionen till `mut` måste därför tåla att köras flera gånger mot färsk data.
 - Ny delad data: lägg till fältet i `freshData` och `normalizeData` i `utils/storage.js` och nyckeln i `SHARED_KEYS`. Appen skapar raden själv, ingen SQL behövs.
 - Gissningarna ligger i en egen tabell, `guesses` (`author` unik, `city`, `reason`). Kolumnen `country` används inte och skickas tom.
-- Lokalt bara i webbläsaren: inloggning, aktiv flik, beat-mönstret och roulettens visningsläge.
+- Lokalt bara i webbläsaren: inloggning, aktiv flik, beat-mönstret, roulettens visningsläge och vilka som har sett avslöjandet.
 - **Lokalt testläge:** på `localhost` och `127.0.0.1` läses och skrivs ingenting mot Supabase, allt stannar i localStorage. Admin-fliken visar vilket läge som gäller.
 - Behörigheter sköts i appen, inte i databasen. Det är ett medvetet val: ingen i gänget kommer att skriva direkt till databasen.
 - **Keepalive:** `app/api/keepalive/route.ts` läser en enda rad ur `app_state` så att Supabase-projektet inte pausas för inaktivitet. Vercel anropar `/api/keepalive` varje dag kl. 09:00 UTC via cron-jobbet i `vercel.json`. Routen får bara läsa, aldrig skriva, och svarar bara `{ ok, at }` utan data ur databasen. Ta inte bort routen eller `vercel.json` före resan. `vercel.json` kan inte innehålla kommentarer, så förklaringen står här och i routen.
@@ -111,6 +118,7 @@ All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jso
 - Ta bort andras böter och citat (övriga kan bara ta bort sina egna).
 - Redigera agendan (ändra, ta bort och lägga till programpunkter) och återställa den till standard.
 - Låsa upp hemsidan för alla och låsa den igen (kräver dessutom lösenordet `RELEASE_PASSWORD`).
+- Ange resmålets stad vid upplåsningen och rätta den i efterhand.
 
 Kontrollera alltid med `isAdmin(user)` både när knappen visas och innan åtgärden utförs.
 
@@ -135,13 +143,14 @@ Kontrollera alltid med `isAdmin(user)` både när knappen visas och innan åtgä
 | Först klar med godkänt uppdrag den dagen | +2 |
 | Straffläggning, plats 1 / 2 / 3 | +5 / +3 / +1 |
 | Pub Golf, lagplats 1 / 2 / 3 / 4, till varje spelare | +6 / +4 / +2 / 0 |
+| Rätt gissad stad (`POINTS.guess`, bara när `destination` är satt) | +5 |
 | Godkänd bot | −1 |
 
-Pub Golf räknas först när alla lag spelat alla hål, och testdata räknas aldrig.
+Pub Golf räknas först när alla lag spelat alla hål, och testdata räknas aldrig. Gissningarna ligger i en egen tabell, så `computeTotals(data, guesses)` får dem som ett eget argument (från `intel.guesses` via `components/Shell.jsx`).
 
 ## Nollställ all data (Admin-fliken)
 
-Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf, låttext och roulette. **Behåller** gissningarna, straffläggningens topplista, agendan (återställs bara med sin egen knapp) och släppläget `release` (ändras bara i rutan "Släpp hemsidan").
+Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf, låttext och roulette. **Behåller** gissningarna, straffläggningens topplista, agendan (återställs bara med sin egen knapp), släppläget `release` och resmålet `destination` (ändras bara i rutan "Släpp hemsidan").
 
 ## Borttaget på användarens begäran (lägg inte tillbaka)
 
