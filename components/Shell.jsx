@@ -131,7 +131,8 @@ export function Shell({ user, onLogout, shared, intel }) {
         )}
         {tab === 'kapten' && <Captain {...props} />}
         {tab === 'uppdrag' && <MissionTab data={data} mut={mut} user={user} />}
-        {tab === 'tabell' && <StandingsTab data={data} user={user} />}
+        {/* Tabellen får gissningarna också: rätt gissad stad ger poäng när resmålet är avslöjat. */}
+        {tab === 'tabell' && <StandingsTab data={data} user={user} guesses={intel.guesses} />}
         {tab === 'pubgolf' && <PubGolfTab {...props} />}
         {tab === 'boter' && <FinesTab data={data} mut={mut} user={user} />}
         {tab === 'citat' && <QuotesTab data={data} mut={mut} user={user} />}
