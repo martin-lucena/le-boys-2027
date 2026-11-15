@@ -106,6 +106,18 @@ export const Sound = {
   },
   // Klicket när en bokstav stannar på avgångstavlan i avslöjandet: mörkare och tyngre än click().
   flap() { this.burst(0, 0.035, 0.45, 'bandpass', 1700); this.tone(300, 0, 0.03, 'square', 0.07); },
+  // "Womp womp" (ledsen trombon): fyra fallande toner där den sista är längst och sjunker mest.
+  // Varje rad är [tonhöjd, fördröjning, längd, tonhöjd att glida ner till]. Två klangfärger
+  // läggs på varandra, precis som i fanfaren. Spelas när skämtsidan "Strippklubbar" öppnas.
+  womp() {
+    const c = this.ac();
+    if (!c) return;
+    const t = c.currentTime + 0.02;
+    [[311.13, 0, 0.32, 294], [293.66, 0.36, 0.32, 277], [277.18, 0.72, 0.32, 262], [261.63, 1.08, 1.1, 175]].forEach(([f, d, len, to]) => {
+      this.tone(f, t + d, len, 'sawtooth', 0.1, to);
+      this.tone(f, t + d, len, 'triangle', 0.18, to);
+    });
+  },
   // Trummorna i beat-maskinen. t = exakt tidpunkt då ljudet ska spelas.
   kick(t) { this.tone(150, t, 0.26, 'sine', 0.9, 42); },
   snare(t) { this.burst(t, 0.16, 0.42, 'highpass', 1400); this.tone(190, t, 0.09, 'triangle', 0.22, 140); },

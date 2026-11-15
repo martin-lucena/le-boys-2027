@@ -66,13 +66,14 @@ components/
   AdminTab.jsx           Admin-fliken
   Penalty.jsx            Straffläggningen (canvas-spel)
   Guesses.jsx            Gissa resmålet
+  Strip.jsx              Skämtsidan "Strippklubbar": bild i helskärm, womp womp och ett minuspoäng
   ui.jsx                 Avatar, Card, Pop, SectionTitle, Segmented, FoldHeader, Countdown
 hooks/
   useSharedData.js       Realtidssynk mot tabellen app_state
   useIntel.js            Gissningar mot tabellen guesses
   useNow.js              Klocka som tickar varje sekund
 lib/
-  config.js              RELEASE_MODE, RELEASE_PASSWORD, Supabase, avresedatum, konton, POINTS
+  config.js              RELEASE_MODE, RELEASE_PASSWORD, Supabase, avresedatum, konton, POINTS, TROLL_BUCKET och TROLL
   constants.js           Deltagare, färger, kvällar, låtblock, beat, dagarna och agendans startvärde (DAYS)
   agenda.js              Agendan som delad data: startvärde (freshAgenda), sortering, kontroll
   pubgolf.js             Pub Golf-lag, banans startvärde (PUB_HOLES), banan som delad data (freshCourse, normalizeCourse) och poängräkning
@@ -90,14 +91,14 @@ utils/
 ## Navigering
 
 - Flikraden längst ner har bara fyra flikar plus Mer: **Agenda, Lagkapten, Uppdrag, Tabell, Mer**. Lägg inte till fler flikar i raden.
-- Övriga sidor nås via Mer-menyn: Pub Golf, Bötesrummet, Citat, Låtstudion, Lag-Roulette och Admin (bara admins).
+- Övriga sidor nås via Mer-menyn: Pub Golf, Bötesrummet, Citat, Låtstudion, Lag-Roulette, Strippklubbar och Admin (bara admins).
 - Ny sida: lägg den i `TABS` i `components/Shell.jsx` utan `main: true`, med `hint`.
 
 ## Data och Supabase
 
 All delad data ligger i tabellen `app_state`, en rad per del: `{ key, value (jsonb), version, updated_at }`. Synkas via `hooks/useSharedData.js`.
 
-- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`, `pubcourse`, `destination`.
+- `SHARED_KEYS`: `hype`, `checkins`, `votes`, `song`, `bpm`, `wheel`, `scores`, `revealed`, `missions`, `fines`, `quotes`, `pubgolf`, `agenda`, `release`, `pubcourse`, `destination`, `trolled`.
 - Ändra alltid data med `mut((d) => { ... })`. Den uppdaterar direkt lokalt och skriver sedan till databasen med versionskontroll: krockar två skrivningar läses raden om och ändringen körs igen. Funktionen till `mut` måste därför tåla att köras flera gånger mot färsk data.
 - Ny delad data: lägg till fältet i `freshData` och `normalizeData` i `utils/storage.js` och nyckeln i `SHARED_KEYS`. Appen skapar raden själv, ingen SQL behövs.
 - Gissningarna ligger i en egen tabell, `guesses` (`author` unik, `city`, `reason`). Kolumnen `country` används inte och skickas tom.
@@ -134,6 +135,7 @@ Kontrollera alltid med `isAdmin(user)` både när knappen visas och innan åtgä
 - **Rouletten:** lägesväljaren har "Fritt snurr" till vänster (förvalt) och "Pub Golf-lag" till höger.
 - **Straffläggning:** skjuts bara med knappen under planen, inte genom att trycka på planen. Bara nya personliga rekord sparas.
 - **Gissningar:** bara stad och motivering. Listan visas på väntsidan och i Agenda-fliken, inte i Admin-fliken.
+- **Strippklubbar (ett skämt):** sidan i Mer-menyn (vinglasikon, undertexten "Kvällens bästa ställen") visar en helskärm med mörk gradient: överst en stor text som studsar in snett, i mitten ett pulserande hjärta med en bild som beror på vem som är inloggad, och nederst poängraden och knappen "Okej, jag fattar", som går tillbaka till Agenda. Ljudet `Sound.womp` (fyra fallande toner) spelas när sidan öppnas. Bilderna ligger i den publika Supabase-bucketen `TROLL_BUCKET`, och vilken bild och text varje person får står i `TROLL` i `lib/config.js`, tillsammans med de valfria fälten `focus` (vilken del av bilden som hamnar mitt i hjärtat, standard `50% 30%`) och `zoom` (förstoring, standard 1). Adressen byggs från `SUPABASE_URL`. Bilden visas med en vanlig `<img>` (inte `next/image`, så att `next.config.ts` inte behöver ändras, och inte en `<image>` inuti SVG, som inte visades) och beskärs till hjärtformen med CSS `mask-image`. Saknas filnamn eller går bilden inte att ladda visas ett rosa hjärta utan bild. Första gången en person öppnar sidan sparas tiden i den delade nyckeln `trolled` (`{ namn: tid }`) och personen får `POINTS.troll` i totaltabellen. Följande gånger visas sidan igen men inga fler poäng dras. Gäller alla, även admins. Helskärmen använder `h-dvh` och `env(safe-area-inset-*)`, och hjärtat är högst 75 procent av bredden, 340 px och 45 procent av skärmhöjden så att allt ryms utan scroll. Med `prefers-reduced-motion` står texten och hjärtat still.
 - **Hopfällbara rutor:** "Vart ska vi?" och Straffläggning har `FoldHeader` med pil, och statustexten ligger på egen rad under rubriken.
 
 ## Totaltabellen (POINTS i lib/config.js)
@@ -147,12 +149,13 @@ Kontrollera alltid med `isAdmin(user)` både när knappen visas och innan åtgä
 | Pub Golf, lagplats 1 / 2 / 3 / 4, till varje spelare | +6 / +4 / +2 / 0 |
 | Rätt gissad stad (`POINTS.guess`, bara när `destination` är satt) | +5 |
 | Godkänd bot | −1 |
+| Öppnat sidan Strippklubbar (`POINTS.troll`, en gång per person) | −1 |
 
 Pub Golf räknas först när alla lag spelat alla hål, och testdata räknas aldrig. Gissningarna ligger i en egen tabell, så `computeTotals(data, guesses)` får dem som ett eget argument (från `intel.guesses` via `components/Shell.jsx`).
 
 ## Nollställ all data (Admin-fliken)
 
-Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf (lag och resultat), låttext och roulette. **Behåller** gissningarna, straffläggningens topplista, agendan och Pub Golf-banan `pubcourse` (återställs bara med var sin egen knapp), samt släppläget `release` och resmålet `destination` (ändras bara i rutan "Släpp hemsidan").
+Nollställer hype, incheckningar, röster, avslöjanden, uppdrag, böter, citat, Pub Golf (lag och resultat), låttext, roulette och `trolled` (vilka som har öppnat Strippklubbar). **Behåller** gissningarna, straffläggningens topplista, agendan och Pub Golf-banan `pubcourse` (återställs bara med var sin egen knapp), samt släppläget `release` och resmålet `destination` (ändras bara i rutan "Släpp hemsidan").
 
 ## Borttaget på användarens begäran (lägg inte tillbaka)
 
