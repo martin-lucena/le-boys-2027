@@ -520,7 +520,6 @@ export function PubGolfTab({ data, mut, user, goTab }) {
             <li><span className="font-semibold">Par:</span> målet för hålet. Under par är birdie eller eagle, över par är bogey.</li>
             <li><span className="font-semibold text-emerald-400">Sidouppdrag: −1 slag.</span> Varje pub har ett uppdrag. Klarar hela laget det dras ett slag av.</li>
             <li><span className="font-semibold text-red-400">Straff: +1 slag styck.</span> Spill, fusk, hjälp från ett annat lag eller att lämna kvar i glaset.</li>
-            <li><span className="font-semibold">Vattenhindret:</span> hål 5 dricks i vatten. Det är obligatoriskt.</li>
             <li><span className="font-semibold">Alkoholfritt:</span> räknas precis som originalet, utan straff.</li>
             <li><span className="font-semibold">Vid lika:</span> flest spelade hål vinner, därefter flest klarade sidouppdrag.</li>
             <li><span className="font-semibold text-amber-400">Totaltabellen:</span> när alla lag har spelat alla hål får varje spelare {POINTS.pubgolf.join(', ')} poäng för plats 1 till {POINTS.pubgolf.length}. Lag på samma antal slag delar placering.</li>
