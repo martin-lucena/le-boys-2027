@@ -17,12 +17,13 @@ import { cx, uid, itemDate, dayTime } from '../utils/helpers';
 import { PRESS, GLOW_GOLD, DISPLAY } from '../utils/styles';
 import { Sound } from '../utils/sound';
 import { Confetti } from '../utils/confetti';
+import { HYPE_MAX } from '../utils/storage';
 import { Avatar, Pop, SectionTitle, Segmented, Countdown } from './ui';
 import { useNow } from '../hooks/useNow';
 
 /* ---------- Flik 1: Agenda ---------- */
-// Hype-mätaren är full vid 25. hypeLabel ger texten bredvid mätaren utifrån antalet.
-const HYPE_MAX = 25;
+// Hype-mätaren är full vid HYPE_MAX (25, står i utils/storage.js) och kan inte gå högre.
+// hypeLabel ger texten bredvid mätaren utifrån antalet.
 const hypeLabel = (n) => (n >= HYPE_MAX ? 'Eld i berget' : n >= 16 ? 'Kokar' : n >= 8 ? 'Varmt' : n >= 1 ? 'Ljummet' : 'Kallt');
 
 // AgendaItem: en punkt i tidslinjen. Används bara av Agenda längre ner i filen.
@@ -43,12 +44,22 @@ function AgendaItem({ item, status, open, onToggle, data, mut, user, goTab, link
   // Knappen Öppna visas bara om punkten länkar till en flik som faktiskt finns.
   const hasLink = !!item.tab && links.some((l) => l.id === item.tab);
 
+  // full = mätaren står på max. Då är eldknappen avstängd och texten "Fullt!" visas.
+  const full = hype >= HYPE_MAX;
+
   // Körs när man trycker på eldknappen. Fanfar och konfetti när mätaren blir full.
   const addHype = () => {
+    // Full mätare: gör ingenting alls, varken ljud, eldar eller sparning.
+    if (full) return;
     Sound.pop(hype);
     if (hype + 1 === HYPE_MAX) { Sound.fanfare(); Confetti.burst(120); }
-    // SPARAR TILL SUPABASE: data.hype, antalet för den här punkten ökar med ett.
-    mut((d) => { d.hype[item.id] = (d.hype[item.id] || 0) + 1; });
+    // SPARAR TILL SUPABASE: data.hype, antalet för den här punkten ökar med ett, men aldrig över HYPE_MAX.
+    // Kontrollen görs här inne mot det färska värdet, eftersom mut kan köras om när flera trycker
+    // samtidigt. Har någon annan hunnit fylla mätaren händer då ingenting.
+    mut((d) => {
+      const cur = d.hype[item.id] || 0;
+      if (cur < HYPE_MAX) d.hype[item.id] = cur + 1;
+    });
     const id = uid();
     setFlames((f) => f.concat(id));
     setTimeout(() => setFlames((f) => f.filter((x) => x !== id)), 800);
@@ -125,13 +136,15 @@ function AgendaItem({ item, status, open, onToggle, data, mut, user, goTab, link
                 <div className="flex-1 h-3 rounded-full bg-slate-800 overflow-hidden" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
                   <div className="h-full rounded-full bg-[linear-gradient(90deg,#34d399,#fbbf24,#fb923c)] transition-all duration-500" style={{ width: `${pct}%` }} />
                 </div>
-                <button type="button" onClick={addHype} aria-label="Höj hypen" className={cx(PRESS, 'relative w-12 h-12 rounded-full bg-slate-800 border border-slate-700 text-2xl hover:border-amber-400')}>
+                {/* Vid full mätare är knappen avstängd (disabled) och nedtonad, utan tryckkänsla och guldkant. */}
+                <button type="button" onClick={addHype} disabled={full} aria-label={full ? 'Hypen är full' : 'Höj hypen'} className={cx('relative w-12 h-12 rounded-full bg-slate-800 border border-slate-700 text-2xl', full ? 'opacity-30 grayscale cursor-not-allowed' : cx(PRESS, 'hover:border-amber-400'))}>
                   🔥
                   {flames.map((f) => (
                     <span key={f} aria-hidden="true" className="absolute inset-0 flex items-center justify-center animate-ping pointer-events-none motion-reduce:hidden">🔥</span>
                   ))}
                 </button>
               </div>
+              {full && <p className="mt-2 text-xs font-bold uppercase tracking-wider text-amber-400 text-right">Fullt!</p>}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
