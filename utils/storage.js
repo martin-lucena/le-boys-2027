@@ -17,6 +17,9 @@ import { clone } from './helpers';
 export const KEY = 'leboys2027.data.v2';
 export const SKEY = 'leboys2027.session.v2';
 export const LOCAL_GUESSES_KEY = 'leboys2027.guesses.local';
+// Hype-mätaren på en programpunkt är full vid 25 och kan aldrig gå högre. Talet står här, och inte
+// i components/Agenda.jsx, så att både knappen i agendan och normalizeData längre ner använder samma gräns.
+export const HYPE_MAX = 25;
 // Hemliga uppdrag: per dag vem som har vilket uppdrag (tasks), när det bockades av (done, ISO-tid),
 // eventuellt bevis (proof) och admins dom (verdict: 'ok' eller 'fail').
 // active: 'auto' följer resans datum, 'off' stänger av, annars ett dag-id (tors, fre, lor, son).
@@ -86,7 +89,10 @@ export function normalizeData(r) {
     votes: { ...f.votes, ...r.votes },
     song: { ...f.song, ...r.song },
     pattern: { ...f.pattern, ...r.pattern },
-    hype: r.hype || {},
+    // Hype: en punkt som redan har mer än HYPE_MAX sparat (från innan gränsen fanns) sätts till HYPE_MAX.
+    hype: Object.fromEntries(
+      Object.entries(r.hype && typeof r.hype === 'object' ? r.hype : {}).map(([id, n]) => [id, Math.min(HYPE_MAX, Number(n) || 0)])
+    ),
     checkins: r.checkins || {},
     wheel: Array.isArray(r.wheel) ? r.wheel.filter((n) => BOYS.includes(n)) : [],
     scores: r.scores && typeof r.scores === 'object' ? r.scores : {},
